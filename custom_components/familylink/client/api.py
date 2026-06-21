@@ -28,7 +28,14 @@ from ..exceptions import (
 	NetworkError,
 	SessionExpiredError,
 )
-from ..schedules import parse_daily_limit_schedule, parse_window_schedule_items
+from ..schedules import (
+	DAY_CODES,
+	build_bedtime_day_enabled_update_payload,
+	build_bedtime_schedule_update_payload,
+	build_daily_limit_schedule_update_payload,
+	parse_daily_limit_schedule,
+	parse_window_schedule_items,
+)
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -1634,15 +1641,7 @@ class FamilyLinkClient:
 
 	# Day-of-week → CAEQ day_code used by Google's batchCreate payloads
 	# (bedtime overrides, daily limit overrides). ISO weekday: 1=Monday … 7=Sunday.
-	_DAY_CODES = {
-		1: "CAEQAQ",  # Monday
-		2: "CAEQAg",  # Tuesday
-		3: "CAEQAw",  # Wednesday
-		4: "CAEQBA",  # Thursday
-		5: "CAEQBQ",  # Friday
-		6: "CAEQBg",  # Saturday
-		7: "CAEQBw",  # Sunday
-	}
+	_DAY_CODES = DAY_CODES
 
 	async def async_enable_bedtime(self, account_id: str | None = None, rule_id: str | None = None) -> bool:
 		"""Enable bedtime, mirroring the Family Link web app (issue #113).
@@ -2291,6 +2290,113 @@ class FamilyLinkClient:
 			return False
 		except Exception as err:
 			_LOGGER.error(f"Unexpected error setting bedtime: {err}")
+			return False
+
+	async def _async_update_time_limit(
+		self,
+		account_id: str,
+		payload: list[Any],
+		description: str,
+	) -> bool:
+		"""Send a recurring timeLimit:update payload."""
+		try:
+			session = await self._get_session()
+			cookie_header = self._get_cookie_header()
+			url = self._people_url(account_id, "timeLimit:update")
+
+			async with session.post(
+				url,
+				headers={
+					"Content-Type": "application/json+protobuf",
+					"Cookie": cookie_header,
+				},
+				data=json.dumps(payload),
+				params={"$httpMethod": "PUT"},
+			) as response:
+				if response.status != 200:
+					response_text = await response.text()
+					_LOGGER.error(
+						"Failed to update %s (HTTP %s): %s",
+						description, response.status, response_text,
+					)
+					return False
+
+			_LOGGER.info("Successfully updated %s", description)
+			return True
+
+		except Exception as err:
+			_LOGGER.error("Unexpected error updating %s: %s", description, err)
+			return False
+
+	async def async_set_bedtime_schedule(
+		self,
+		day: int,
+		start_time: str | None = None,
+		end_time: str | None = None,
+		enabled: bool | None = None,
+		account_id: str | None = None,
+	) -> bool:
+		"""Update a recurring bedtime schedule day."""
+		if not self.is_authenticated():
+			raise AuthenticationError("Not authenticated")
+
+		if not account_id:
+			account_id = await self.async_get_supervised_child_id()
+
+		has_window = start_time is not None or end_time is not None
+		if has_window and (start_time is None or end_time is None):
+			_LOGGER.error("Both start_time and end_time are required to update a bedtime window")
+			return False
+		if not has_window and enabled is None:
+			_LOGGER.error("Provide start_time/end_time, enabled, or both")
+			return False
+
+		try:
+			if has_window:
+				payload = build_bedtime_schedule_update_payload(
+					account_id, day, start_time, end_time
+				)
+				if not await self._async_update_time_limit(
+					account_id, payload, f"bedtime schedule for day {day}"
+				):
+					return False
+
+			if enabled is not None:
+				payload = build_bedtime_day_enabled_update_payload(account_id, day, enabled)
+				if not await self._async_update_time_limit(
+					account_id, payload, f"bedtime schedule enabled state for day {day}"
+				):
+					return False
+
+			return True
+
+		except ValueError as err:
+			_LOGGER.error("Invalid bedtime schedule value: %s", err)
+			return False
+
+	async def async_set_daily_limit_schedule(
+		self,
+		day: int,
+		daily_minutes: int,
+		account_id: str | None = None,
+	) -> bool:
+		"""Update a recurring daily limit schedule day."""
+		if not self.is_authenticated():
+			raise AuthenticationError("Not authenticated")
+
+		if not account_id:
+			account_id = await self.async_get_supervised_child_id()
+
+		try:
+			payload = build_daily_limit_schedule_update_payload(
+				account_id, day, daily_minutes
+			)
+			return await self._async_update_time_limit(
+				account_id, payload, f"daily limit schedule for day {day}"
+			)
+
+		except ValueError as err:
+			_LOGGER.error("Invalid daily limit schedule value: %s", err)
 			return False
 
 	async def async_get_time_limit(self, account_id: str | None = None) -> dict[str, Any]:

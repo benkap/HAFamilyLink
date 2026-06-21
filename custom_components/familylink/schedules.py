@@ -13,6 +13,16 @@ DAY_NAMES = {
 	7: "Sunday",
 }
 
+DAY_CODES = {
+	1: "CAEQAQ",
+	2: "CAEQAg",
+	3: "CAEQAw",
+	4: "CAEQBA",
+	5: "CAEQBQ",
+	6: "CAEQBg",
+	7: "CAEQBw",
+}
+
 
 def _is_int(value: Any) -> bool:
 	"""Return true for plain integers, excluding booleans."""
@@ -34,6 +44,85 @@ def _is_time_pair(value: Any) -> bool:
 def format_time_pair(value: list[int]) -> str:
 	"""Format a [hour, minute] pair as HH:MM."""
 	return f"{value[0]:02d}:{value[1]:02d}"
+
+
+def day_code_for(day: int) -> str:
+	"""Return the Family Link day code for an ISO weekday."""
+	if not _is_int(day) or day not in DAY_CODES:
+		raise ValueError(f"Invalid day: {day}. Must be 1-7 (Monday-Sunday)")
+	return DAY_CODES[day]
+
+
+def parse_time_string(value: str) -> list[int]:
+	"""Parse HH:MM into a Family Link [hour, minute] pair."""
+	if not isinstance(value, str):
+		raise ValueError("Time must be a string in HH:MM format")
+
+	parts = value.split(":")
+	if len(parts) != 2:
+		raise ValueError(f"Invalid time: {value}. Expected HH:MM")
+
+	try:
+		pair = [int(parts[0]), int(parts[1])]
+	except ValueError as err:
+		raise ValueError(f"Invalid time: {value}. Expected HH:MM") from err
+
+	if not _is_time_pair(pair):
+		raise ValueError(f"Invalid time: {value}. Expected HH:MM in 24-hour time")
+
+	return pair
+
+
+def build_bedtime_schedule_update_payload(
+	account_id: str,
+	day: int,
+	start_time: str,
+	end_time: str,
+) -> list[Any]:
+	"""Build a recurring bedtime window update payload."""
+	return [
+		None,
+		account_id,
+		[[None, None, None, [[day_code_for(day), parse_time_string(start_time), parse_time_string(end_time)]]], None, None, None, []],
+		None,
+		[1],
+	]
+
+
+def build_bedtime_day_enabled_update_payload(
+	account_id: str,
+	day: int,
+	enabled: bool,
+) -> list[Any]:
+	"""Build a recurring bedtime weekday on/off payload."""
+	if type(enabled) is not bool:
+		raise ValueError("enabled must be a boolean")
+
+	return [
+		None,
+		account_id,
+		[[None, None, [[day_code_for(day), 2 if enabled else 1]], None], None, None, None, []],
+		None,
+		[1],
+	]
+
+
+def build_daily_limit_schedule_update_payload(
+	account_id: str,
+	day: int,
+	minutes: int,
+) -> list[Any]:
+	"""Build a recurring daily limit minutes update payload."""
+	if not _is_int(minutes) or not 0 <= minutes <= 1440:
+		raise ValueError("minutes must be an integer from 0 to 1440")
+
+	return [
+		None,
+		account_id,
+		[None, [[2, None, None, [[day_code_for(day), minutes]]]]],
+		None,
+		[1],
+	]
 
 
 def parse_window_schedule_items(items: Any, code_prefix: str) -> list[dict[str, Any]]:

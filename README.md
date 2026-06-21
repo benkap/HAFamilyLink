@@ -21,13 +21,14 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 
 ### ⏰ Time Management
 - **Bedtime Control** - Enable/disable bedtime (downtime) restrictions
-- **Set Bedtime Schedule** - Modify bedtime start/end times for any day (or today by default)
+- **Set Bedtime Schedule** - Modify recurring bedtime start/end times for any weekday
 - **School Time Control** - Enable/disable school time restrictions
 - **Daily Limit Control** - Enable/disable daily screen time limits (0-1440 minutes)
-- **Set Daily Limit** - Change daily screen time limit duration per device
+- **Set Daily Limit** - Change today's daily screen time limit duration per device
+- **Set Daily Limit Schedule** - Modify recurring daily limit minutes for any weekday
 - **Time Bonuses** - Add extra time (15min, 30min, 60min) or cancel active bonuses
 - **Smart Detection** - Automatically detects when device is in bedtime/school time window
-- **Schedule Visibility** - View bedtime and school time schedules in sensor attributes
+- **Schedule Visibility** - View bedtime, school time, and daily limit schedules in sensor attributes
 
 ### 📊 Screen Time Monitoring
 - **Daily Screen Time** - Track total daily usage per child
@@ -94,6 +95,11 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 - `sensor.<child>_school_time_schedule` - Weekly school time schedule
 - `sensor.<child>_daily_limit_schedule` - Weekly daily limit schedule
   - Attributes: `enabled`, `enabled_days`, `schedule`, `monday` through `sunday`
+
+#### Schedule Services
+- `familylink.set_bedtime_schedule` - Update a recurring bedtime weekday window and enabled state
+- `familylink.set_daily_limit_schedule` - Update recurring daily limit minutes for one weekday
+- `familylink.set_bedtime` and `familylink.set_daily_limit` remain one-day override services
 
 ### Per-Device Entities
 
@@ -269,7 +275,7 @@ This integration uses reverse-engineered Google Family Link API endpoints:
 | `/people/{userId}/timeLimitOverride/{id}?$httpMethod=DELETE` | Cancel time bonuses |
 | `/people/{userId}/appliedTimeLimits` | Current time limits and lock states |
 | `/people/{userId}/timeLimit` | Time limit rules and schedules |
-| `/people/{userId}/timeLimit:update` | Enable/disable bedtime, school time, daily limit |
+| `/people/{userId}/timeLimit:update` | Enable/disable bedtime, school time, daily limit; update recurring bedtime and daily limit schedules |
 
 ## 🐛 Troubleshooting
 

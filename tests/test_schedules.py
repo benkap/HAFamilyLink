@@ -96,3 +96,65 @@ def test_parse_daily_limit_schedule_ignores_malformed_rows():
 			"state_flag": 2,
 		},
 	]
+
+
+def test_build_bedtime_schedule_update_payload():
+	assert schedules.build_bedtime_schedule_update_payload(
+		"child123", 7, "21:15", "06:30"
+	) == [
+		None,
+		"child123",
+		[[None, None, None, [["CAEQBw", [21, 15], [6, 30]]]], None, None, None, []],
+		None,
+		[1],
+	]
+
+
+def test_build_bedtime_day_enabled_update_payload():
+	assert schedules.build_bedtime_day_enabled_update_payload(
+		"child123", 2, False
+	) == [
+		None,
+		"child123",
+		[[None, None, [["CAEQAg", 1]], None], None, None, None, []],
+		None,
+		[1],
+	]
+
+
+def test_build_daily_limit_schedule_update_payload():
+	assert schedules.build_daily_limit_schedule_update_payload(
+		"child123", 5, 135
+	) == [
+		None,
+		"child123",
+		[None, [[2, None, None, [["CAEQBQ", 135]]]]],
+		None,
+		[1],
+	]
+
+
+def test_builders_reject_invalid_values():
+	for invalid_day in (0, 8, True):
+		try:
+			schedules.day_code_for(invalid_day)
+		except ValueError:
+			pass
+		else:
+			raise AssertionError(f"day {invalid_day!r} should be rejected")
+
+	for invalid_time in ("24:00", "10:60", "bad"):
+		try:
+			schedules.parse_time_string(invalid_time)
+		except ValueError:
+			pass
+		else:
+			raise AssertionError(f"time {invalid_time!r} should be rejected")
+
+	for invalid_minutes in (-1, 1441, True):
+		try:
+			schedules.build_daily_limit_schedule_update_payload("child123", 1, invalid_minutes)
+		except ValueError:
+			pass
+		else:
+			raise AssertionError(f"minutes {invalid_minutes!r} should be rejected")
