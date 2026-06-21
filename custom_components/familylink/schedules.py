@@ -125,6 +125,24 @@ def build_daily_limit_schedule_update_payload(
 	]
 
 
+def build_daily_limit_day_enabled_update_payload(
+	account_id: str,
+	day: int,
+	enabled: bool,
+) -> list[Any]:
+	"""Build a recurring daily limit weekday on/off payload."""
+	if type(enabled) is not bool:
+		raise ValueError("enabled must be a boolean")
+
+	return [
+		None,
+		account_id,
+		[None, [[2, None, [[day_code_for(day), 2 if enabled else 1]], None]]],
+		None,
+		[1],
+	]
+
+
 def parse_window_schedule_items(items: Any, code_prefix: str) -> list[dict[str, Any]]:
 	"""Parse bedtime or school time rows from a timeLimit schedule list."""
 	schedules: list[dict[str, Any]] = []

@@ -441,7 +441,7 @@ set_daily_limit:
 
 set_daily_limit_schedule:
   name: Set Daily Limit Schedule
-  description: Update the recurring daily limit minutes for one weekday.
+  description: Update the recurring daily limit schedule for one weekday. Provide daily minutes, enabled state, or both.
   fields:
     day:
       name: Day
@@ -467,7 +467,7 @@ set_daily_limit_schedule:
     daily_minutes:
       name: Daily Minutes
       description: Number of minutes allowed for this weekday (0-1440).
-      required: true
+      required: false
       example: 120
       default: 120
       selector:
@@ -476,6 +476,12 @@ set_daily_limit_schedule:
           max: 1440
           mode: box
           unit_of_measurement: "minutes"
+    enabled:
+      name: Enabled
+      description: Whether the daily limit is enabled for this weekday.
+      required: false
+      selector:
+        boolean:
     entity_id:
       name: Child Entity
       description: Select any Family Link entity for this child (recommended - automatically extracts child_id)

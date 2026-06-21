@@ -134,6 +134,18 @@ def test_build_daily_limit_schedule_update_payload():
 	]
 
 
+def test_build_daily_limit_day_enabled_update_payload():
+	assert schedules.build_daily_limit_day_enabled_update_payload(
+		"child123", 3, False
+	) == [
+		None,
+		"child123",
+		[None, [[2, None, [["CAEQAw", 1]], None]]],
+		None,
+		[1],
+	]
+
+
 def test_builders_reject_invalid_values():
 	for invalid_day in (0, 8, True):
 		try:
@@ -158,3 +170,13 @@ def test_builders_reject_invalid_values():
 			pass
 		else:
 			raise AssertionError(f"minutes {invalid_minutes!r} should be rejected")
+
+	for invalid_enabled in (0, 1, "true"):
+		try:
+			schedules.build_daily_limit_day_enabled_update_payload(
+				"child123", 1, invalid_enabled
+			)
+		except ValueError:
+			pass
+		else:
+			raise AssertionError(f"enabled {invalid_enabled!r} should be rejected")

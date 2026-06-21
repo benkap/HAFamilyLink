@@ -135,7 +135,8 @@ SCHEMA_SET_BEDTIME_SCHEDULE = vol.Schema({
 
 SCHEMA_SET_DAILY_LIMIT_SCHEDULE = vol.Schema({
 	vol.Required("day"): vol.All(vol.Coerce(int), vol.Range(min=1, max=7)),
-	vol.Required("daily_minutes"): vol.All(vol.Coerce(int), vol.Range(min=0, max=1440)),
+	vol.Optional("daily_minutes"): vol.All(vol.Coerce(int), vol.Range(min=0, max=1440)),
+	vol.Optional("enabled"): cv.boolean,
 	vol.Optional("entity_id"): cv.entity_id,
 	vol.Optional("child_id"): cv.string,
 })
@@ -742,7 +743,8 @@ async def async_setup_services(hass: HomeAssistant, coordinator: FamilyLinkDataU
 		"""Handle set_daily_limit_schedule service call."""
 		_require_client()
 		day = int(call.data["day"])
-		daily_minutes = call.data["daily_minutes"]
+		daily_minutes = call.data.get("daily_minutes")
+		enabled = call.data["enabled"] if "enabled" in call.data else None
 		entity_id = call.data.get("entity_id")
 		child_id = call.data.get("child_id")
 
@@ -750,15 +752,19 @@ async def async_setup_services(hass: HomeAssistant, coordinator: FamilyLinkDataU
 			_, extracted_child_id = extract_ids_from_entity(hass, entity_id)
 			child_id = extracted_child_id
 
+		if daily_minutes is None and enabled is None:
+			raise ValueError("Provide daily_minutes, enabled, or both")
+
 		_LOGGER.info(
-			"Service called: set_daily_limit_schedule day=%s daily_minutes=%s",
-			day, daily_minutes,
+			"Service called: set_daily_limit_schedule day=%s daily_minutes=%s enabled=%s",
+			day, daily_minutes, enabled,
 		)
 
 		try:
 			success = await coordinator.client.async_set_daily_limit_schedule(
 				day=day,
 				daily_minutes=daily_minutes,
+				enabled=enabled,
 				account_id=child_id,
 			)
 			if success:

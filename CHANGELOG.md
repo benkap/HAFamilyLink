@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Read-only child-level schedule sensors for bedtime, school time, and daily limits. These use the existing coordinator data from Google's `timeLimit` response and do not add extra polling per sensor.
 - Recurring schedule services:
   - `familylink.set_bedtime_schedule` updates a weekday bedtime window and enabled state.
-  - `familylink.set_daily_limit_schedule` updates weekday daily limit minutes.
+  - `familylink.set_daily_limit_schedule` updates weekday daily limit minutes and enabled state.
 
 ---
 

@@ -98,7 +98,7 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 
 #### Schedule Services
 - `familylink.set_bedtime_schedule` - Update a recurring bedtime weekday window and enabled state
-- `familylink.set_daily_limit_schedule` - Update recurring daily limit minutes for one weekday
+- `familylink.set_daily_limit_schedule` - Update recurring daily limit minutes and enabled state for one weekday
 - `familylink.set_bedtime` and `familylink.set_daily_limit` remain one-day override services
 
 ### Per-Device Entities

@@ -32,6 +32,7 @@ from ..schedules import (
 	DAY_CODES,
 	build_bedtime_day_enabled_update_payload,
 	build_bedtime_schedule_update_payload,
+	build_daily_limit_day_enabled_update_payload,
 	build_daily_limit_schedule_update_payload,
 	parse_daily_limit_schedule,
 	parse_window_schedule_items,
@@ -2377,7 +2378,8 @@ class FamilyLinkClient:
 	async def async_set_daily_limit_schedule(
 		self,
 		day: int,
-		daily_minutes: int,
+		daily_minutes: int | None = None,
+		enabled: bool | None = None,
 		account_id: str | None = None,
 	) -> bool:
 		"""Update a recurring daily limit schedule day."""
@@ -2387,13 +2389,28 @@ class FamilyLinkClient:
 		if not account_id:
 			account_id = await self.async_get_supervised_child_id()
 
+		if daily_minutes is None and enabled is None:
+			_LOGGER.error("Provide daily_minutes, enabled, or both")
+			return False
+
 		try:
-			payload = build_daily_limit_schedule_update_payload(
-				account_id, day, daily_minutes
-			)
-			return await self._async_update_time_limit(
-				account_id, payload, f"daily limit schedule for day {day}"
-			)
+			if daily_minutes is not None:
+				payload = build_daily_limit_schedule_update_payload(
+					account_id, day, daily_minutes
+				)
+				if not await self._async_update_time_limit(
+					account_id, payload, f"daily limit schedule for day {day}"
+				):
+					return False
+
+			if enabled is not None:
+				payload = build_daily_limit_day_enabled_update_payload(account_id, day, enabled)
+				if not await self._async_update_time_limit(
+					account_id, payload, f"daily limit schedule enabled state for day {day}"
+				):
+					return False
+
+			return True
 
 		except ValueError as err:
 			_LOGGER.error("Invalid daily limit schedule value: %s", err)
