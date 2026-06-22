@@ -13,6 +13,7 @@ CONF_UPDATE_INTERVAL: Final = "update_interval"
 CONF_TIMEOUT: Final = "timeout"
 CONF_AUTH_URL: Final = "auth_url"  # URL for Docker standalone mode
 CONF_ENABLE_LOCATION_TRACKING: Final = "enable_location_tracking"
+CONF_SCHEDULE_TIMEZONE: Final = "schedule_timezone"
 
 # Default values
 DEFAULT_UPDATE_INTERVAL: Final = 60  # seconds

@@ -98,6 +98,27 @@ def test_parse_daily_limit_schedule_ignores_malformed_rows():
 	]
 
 
+def test_get_time_zone_accepts_only_valid_iana_names():
+	assert schedules.get_time_zone("Asia/Jerusalem") is not None
+	assert schedules.get_time_zone("  Asia/Jerusalem  ") is not None
+	assert schedules.get_time_zone("") is None
+	assert schedules.get_time_zone("UTC+03:00") is None
+
+
+def test_find_device_time_zone_name_uses_devices_payload_position():
+	device_without_timezone = [None] * 12
+	device_with_timezone = [None] * 11 + [["Asia/Jerusalem"]]
+	source = [None, [device_without_timezone, device_with_timezone]]
+
+	assert schedules.find_device_time_zone_name(source) == "Asia/Jerusalem"
+
+
+def test_find_device_time_zone_name_ignores_unrelated_nested_keys():
+	source = {"deviceInfo": [{"timeZone": "Asia/Jerusalem"}]}
+
+	assert schedules.find_device_time_zone_name(source) is None
+
+
 def test_describe_effective_window_marks_weekly_match():
 	weekly_schedule = [{
 		"day": 7,

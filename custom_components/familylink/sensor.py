@@ -508,18 +508,30 @@ class FamilyLinkScheduleSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
         attributes: dict[str, Any] = {
             "child_id": self._child_id,
             "child_name": self._child_name,
-			"enabled": enabled,
-			"enabled_days": [
-				slot.get("day_name")
-				for slot in schedule
-				if isinstance(slot, dict) and slot.get("enabled") and slot.get("day_name")
-			],
-			"schedule": schedule,
-		}
+            "enabled": enabled,
+            "enabled_days": [
+                slot.get("day_name")
+                for slot in schedule
+                if isinstance(slot, dict) and slot.get("enabled") and slot.get("day_name")
+            ],
+            "schedule": schedule,
+        }
 
         for day, day_name in DAY_NAMES.items():
             slot = slots_by_day.get(day)
             attributes[day_name.lower()] = self._format_slot(slot) if slot else "off"
+
+        if child_data:
+            schedule_today = child_data.get("schedule_today")
+            if isinstance(schedule_today, int):
+                today_key = DAY_NAMES.get(schedule_today, "").lower()
+                if today_key:
+                    attributes["schedule_today"] = schedule_today
+                    attributes["schedule_today_key"] = today_key
+                    attributes["today"] = attributes.get(today_key, "off")
+
+            attributes["schedule_timezone"] = child_data.get("schedule_timezone")
+            attributes["schedule_timezone_source"] = child_data.get("schedule_timezone_source")
 
         return attributes
 

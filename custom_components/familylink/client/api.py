@@ -17,6 +17,7 @@ from homeassistant.util import dt as dt_util
 
 from ..auth.addon_client import AddonCookieClient
 from ..const import (
+	CONF_SCHEDULE_TIMEZONE,
 	DEVICE_LOCK_ACTION,
 	DEVICE_RING_ACTION_CODE,
 	DEVICE_UNLOCK_ACTION,
@@ -34,6 +35,8 @@ from ..schedules import (
 	build_bedtime_schedule_update_payload,
 	build_daily_limit_day_enabled_update_payload,
 	build_daily_limit_schedule_update_payload,
+	find_device_time_zone_name,
+	get_time_zone,
 	parse_daily_limit_schedule,
 	parse_window_schedule_items,
 )
@@ -65,6 +68,52 @@ class FamilyLinkClient:
 		self._session_created_at: float = 0  # Track session age for SAPISIDHASH refresh
 		self._cookies: list[dict[str, Any]] | None = None
 		self._account_id: str | None = None  # Cached supervised child ID
+		self._configured_schedule_timezone = (
+			config.get(CONF_SCHEDULE_TIMEZONE, "") or ""
+		).strip()
+		self._google_schedule_timezones: dict[str, str] = {}
+		self._google_schedule_timezone_checked: set[str] = set()
+
+	def update_google_schedule_timezone(self, account_id: str, devices_payload: Any) -> None:
+		"""Cache the schedule timezone from the known Google devices payload."""
+		if self._configured_schedule_timezone:
+			return
+		timezone = find_device_time_zone_name(devices_payload)
+		if timezone:
+			self._google_schedule_timezones[account_id] = timezone
+			_LOGGER.debug("Using Google device timezone for %s: %s", account_id, timezone)
+
+	def _schedule_time_zone_context(self, account_id: str | None = None) -> tuple[Any | None, str | None, str]:
+		"""Return the effective timezone, name, and source for schedule dates."""
+		configured = get_time_zone(self._configured_schedule_timezone)
+		if configured:
+			return configured, self._configured_schedule_timezone, "config"
+
+		if self._configured_schedule_timezone:
+			_LOGGER.warning(
+				"Ignoring invalid configured schedule timezone: %s",
+				self._configured_schedule_timezone,
+			)
+
+		google_timezone = (
+			self._google_schedule_timezones.get(account_id)
+			if account_id
+			else None
+		)
+		if google_timezone is None and len(self._google_schedule_timezones) == 1:
+			google_timezone = next(iter(self._google_schedule_timezones.values()))
+
+		google = get_time_zone(google_timezone)
+		if google:
+			return google, google_timezone, "google"
+
+		home_assistant_timezone = getattr(self.hass.config, "time_zone", None)
+		return get_time_zone(home_assistant_timezone), home_assistant_timezone, "home_assistant"
+
+	def schedule_today(self, account_id: str | None = None) -> int:
+		"""Return today's ISO weekday in the effective schedule timezone."""
+		time_zone, _, _ = self._schedule_time_zone_context(account_id)
+		return dt_util.now(time_zone).isoweekday() if time_zone else dt_util.now().isoweekday()
 
 	@staticmethod
 	def _validate_id(value: str, name: str = "ID") -> str:
@@ -464,6 +513,71 @@ class FamilyLinkClient:
 		except Exception as err:
 			_LOGGER.error("Unexpected error fetching apps and usage: %s", err)
 			raise NetworkError(f"Failed to fetch apps and usage: {err}") from err
+
+	async def async_get_devices_payload(self, account_id: str | None = None) -> Any:
+		"""Get the raw devices payload used for device timezone discovery."""
+		if not self.is_authenticated():
+			raise AuthenticationError("Not authenticated")
+
+		if not account_id:
+			account_id = await self.async_get_supervised_child_id()
+
+		try:
+			session = await self._get_session()
+			cookie_header = self._get_cookie_header()
+			url = self._people_url(account_id, "devices")
+
+			_LOGGER.debug("Fetching devices payload from %s", url)
+
+			async with session.get(
+				url,
+				headers={
+					"Content-Type": "application/json+protobuf",
+					"Cookie": cookie_header,
+				},
+				params={"includeUnmanagedDevices": "true"},
+			) as response:
+				if response.status == 401:
+					_LOGGER.error("✗ 401 Unauthorized - Session expired fetching devices")
+					raise SessionExpiredError("Session expired, please re-authenticate")
+				if response.status != 200:
+					response_text = await response.text()
+					raise NetworkError(
+						f"Failed to fetch devices: HTTP {response.status}: {response_text}"
+					)
+
+				return await response.json()
+
+		except SessionExpiredError:
+			raise
+		except NetworkError:
+			raise
+		except Exception as err:
+			_LOGGER.error("Unexpected error fetching devices: %s", err)
+			raise NetworkError(f"Failed to fetch devices: {err}") from err
+
+	async def async_update_google_schedule_timezone_from_devices(self, account_id: str) -> None:
+		"""Best-effort cache of the Google device timezone for one child."""
+		if (
+			self._configured_schedule_timezone
+			or account_id in self._google_schedule_timezones
+			or account_id in self._google_schedule_timezone_checked
+		):
+			return
+
+		try:
+			devices_payload = await self.async_get_devices_payload(account_id)
+		except Exception as err:
+			self._google_schedule_timezone_checked.add(account_id)
+			_LOGGER.debug(
+				"Could not fetch Google device timezone for %s; using fallback timezone: %s",
+				account_id,
+				err,
+			)
+			return
+
+		self._google_schedule_timezone_checked.add(account_id)
+		self.update_google_schedule_timezone(account_id, devices_payload)
 
 	async def async_get_daily_screen_time(
 		self,
@@ -1325,7 +1439,7 @@ class FamilyLinkClient:
 						_LOGGER.debug(f"Device {device_id}: First 10 elements (types): {[type(x).__name__ for x in device_data[:10]]}")
 
 						# Get current day of week (1=Monday, 7=Sunday)
-						current_day = dt_util.now().isoweekday()
+						current_day = self.schedule_today(account_id)
 						_LOGGER.debug(f"Device {device_id}: Current day of week: {current_day}")
 
 						for idx, item in enumerate(device_data):
@@ -1716,8 +1830,7 @@ class FamilyLinkClient:
 		# Pick the weekly bedtime slot matching today; fall back to a sane
 		# default (21:30 → 07:00) if the user has no slot configured for
 		# today — that way the override at least covers a reasonable window.
-		now_local = dt_util.now()
-		weekday = now_local.isoweekday()
+		weekday = self.schedule_today(account_id)
 		day_code = self._DAY_CODES.get(weekday)
 		if not day_code:
 			_LOGGER.error("Unexpected weekday %s — cannot build bedtime override", weekday)
@@ -1882,7 +1995,8 @@ class FamilyLinkClient:
 
 		# Google uses ISO weekday numbering (1=Monday … 7=Sunday) in the user's
 		# local time, since Family Link schedules are per-day.
-		now_local = dt_util.now()
+		schedule_time_zone, _, _ = self._schedule_time_zone_context(account_id)
+		now_local = dt_util.now(schedule_time_zone) if schedule_time_zone else dt_util.now()
 		weekday = now_local.isoweekday()
 		start = [now_local.hour, now_local.minute]
 		# 23:59 is what the web app uses when extending to end of day; this
@@ -2187,7 +2301,7 @@ class FamilyLinkClient:
 			cookie_header = self._get_cookie_header()
 
 			# Get current day of week (1=Monday, 7=Sunday) and map to CAEQ code
-			current_day = dt_util.now().isoweekday()
+			current_day = self.schedule_today(account_id)
 			day_code = self._DAY_CODES[current_day]
 
 			# Payload format: [null, account_id, [[null, null, 8, device_token, null, null, null, null, null, null, null, [2, daily_minutes, day_code]]], [1]]
@@ -2257,7 +2371,7 @@ class FamilyLinkClient:
 
 			# Use provided day or default to today
 			if day is None:
-				day = dt_util.now().isoweekday()
+				day = self.schedule_today(account_id)
 
 			if day not in self._DAY_CODES:
 				raise ValueError(f"Invalid day: {day}. Must be 1-7 (Monday-Sunday)")
@@ -2489,6 +2603,14 @@ class FamilyLinkClient:
 
 				response_data = await response.json()
 				_LOGGER.debug(f"Time limit rules response: {response_data}")
+				schedule_time_zone, schedule_timezone, schedule_timezone_source = (
+					self._schedule_time_zone_context(account_id)
+				)
+				schedule_today = (
+					dt_util.now(schedule_time_zone).isoweekday()
+					if schedule_time_zone
+					else dt_util.now().isoweekday()
+				)
 
 				# Unwrap the response: [[metadata], [real_data]] -> [real_data]
 				if not isinstance(response_data, list) or len(response_data) < 2:
@@ -2643,7 +2765,7 @@ class FamilyLinkClient:
 				bedtime_enabled_today = bedtime_enabled
 				bedtime_today_source = "weekly"
 				bedtime_today_override_action = None
-				today_day_code = self._DAY_CODES.get(dt_util.now().isoweekday())
+				today_day_code = self._DAY_CODES.get(schedule_today)
 				if today_day_code and isinstance(data, list):
 					latest_ts = -1
 					latest_action = None
@@ -2703,6 +2825,10 @@ class FamilyLinkClient:
 					"bedtime_enabled_today": bedtime_enabled_today,
 					"bedtime_today_source": bedtime_today_source,
 					"bedtime_today_override_action": bedtime_today_override_action,
+						"schedule_today": schedule_today,
+						"schedule_timezone": schedule_timezone,
+						"schedule_timezone_source": schedule_timezone_source,
+						"google_schedule_timezone": self._google_schedule_timezones.get(account_id),
 					"bedtime_schedule": bedtime_schedule,
 					"school_time_schedule": school_time_schedule,
 					"daily_limit_schedule": daily_limit_schedule,

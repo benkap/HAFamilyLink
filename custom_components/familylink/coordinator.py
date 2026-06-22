@@ -161,6 +161,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			cached_devices = None  # Populated from cache only if the fetch fails
 			try:
 				apps_usage_data = await self.client.async_get_apps_and_usage(account_id=child_id)
+				await self.client.async_update_google_schedule_timezone_from_devices(child_id)
 				_LOGGER.debug(
 					f"Fetched for {child_name}: {len(apps_usage_data.get('apps', []))} apps, "
 					f"{len(apps_usage_data.get('deviceInfo', []))} devices, "
@@ -212,6 +213,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				_LOGGER.debug(f"Restored {len(devices)} cached device(s) for {child_name}")
 
 			# Fetch time limit configuration (bedtime/school time schedules and enabled states)
+			time_limit_config: dict[str, Any] = {}
 			bedtime_enabled = None
 			school_time_enabled = None
 			bedtime_schedule = None
@@ -335,7 +337,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 						time_data.get("bedtime_window_start"),
 						time_data.get("bedtime_window_end"),
 						bedtime_schedule,
-						dt_util.now().isoweekday(),
+						time_limit_config.get("schedule_today") or self.client.schedule_today(child_id),
 					)
 					time_data["bedtime_window_source"] = bedtime_window["source"]
 					time_data["bedtime_window_label"] = bedtime_window["label"]
@@ -434,14 +436,17 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				"app_usage_sessions": apps_usage_data.get("appUsageSessions", []) if apps_usage_data else [],
 				"bedtime_enabled": bedtime_enabled,
 				"school_time_enabled": school_time_enabled,
-				# Effective state for today (issue #114) — read from
-				# appliedTimeLimits, which already merges weekly policy with
-				# daily overrides. The switches use these instead of the
-				# weekly-only revisions above.
-				"bedtime_enabled_today": bedtime_enabled_today,
-				"bedtime_today_source": bedtime_today_source,
-				"bedtime_today_override_action": bedtime_today_override_action,
-				"school_time_enabled_today": schooltime_enabled_today,
+					# Effective state for today (issue #114) — read from
+					# appliedTimeLimits, which already merges weekly policy with
+					# daily overrides. The switches use these instead of the
+					# weekly-only revisions above.
+					"bedtime_enabled_today": bedtime_enabled_today,
+					"bedtime_today_source": bedtime_today_source,
+					"bedtime_today_override_action": bedtime_today_override_action,
+					"schedule_today": time_limit_config.get("schedule_today"),
+					"schedule_timezone": time_limit_config.get("schedule_timezone"),
+					"schedule_timezone_source": time_limit_config.get("schedule_timezone_source"),
+					"school_time_enabled_today": schooltime_enabled_today,
 				"bedtime_schedule": bedtime_schedule,
 				"school_time_schedule": school_time_schedule,
 				"daily_limit_schedule": daily_limit_schedule,
@@ -468,9 +473,9 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 
 		try:
 			self.client = FamilyLinkClient(
-				hass=self.hass,
-				config=self.entry.data,
-			)
+					hass=self.hass,
+					config={**self.entry.data, **self.entry.options},
+				)
 
 			await self.client.async_authenticate()
 			_LOGGER.debug("Successfully set up Family Link client")

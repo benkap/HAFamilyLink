@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 DAY_NAMES = {
 	1: "Monday",
@@ -23,10 +24,44 @@ DAY_CODES = {
 	7: "CAEQBw",
 }
 
-
 def _is_int(value: Any) -> bool:
 	"""Return true for plain integers, excluding booleans."""
 	return type(value) is int
+
+
+def get_time_zone(value: str | None) -> ZoneInfo | None:
+	"""Return a ZoneInfo for an IANA timezone name."""
+	if not isinstance(value, str):
+		return None
+
+	name = value.strip()
+	if not name:
+		return None
+
+	try:
+		return ZoneInfo(name)
+	except ZoneInfoNotFoundError:
+		return None
+
+
+def find_device_time_zone_name(source: Any) -> str | None:
+	"""Find the device timezone from the known Family Link /devices response."""
+	if not isinstance(source, list) or len(source) < 2 or not isinstance(source[1], list):
+		return None
+
+	for device in source[1]:
+		if not isinstance(device, list) or len(device) <= 11:
+			continue
+
+		device_settings = device[11]
+		if not isinstance(device_settings, list) or not device_settings:
+			continue
+
+		timezone = device_settings[0]
+		if isinstance(timezone, str) and get_time_zone(timezone):
+			return timezone.strip()
+
+	return None
 
 
 def _is_time_pair(value: Any) -> bool:

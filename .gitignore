@@ -54,11 +54,10 @@ home-assistant_v2.db
 # Family Link specific
 familylink_cookies.json
 *.cookies
-revrese_enginering.md
 
 # OS
 .DS_Store
 Thumbs.db
 
 # Logs
-*.log 
+*.log
