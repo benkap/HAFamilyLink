@@ -27,6 +27,7 @@ from ..exceptions import (
 	AuthenticationError,
 	DeviceControlError,
 	NetworkError,
+	ScheduleUpdatePartialError,
 	SessionExpiredError,
 )
 from ..schedules import (
@@ -2419,13 +2420,13 @@ class FamilyLinkClient:
 		payload: list[Any],
 		description: str,
 	) -> bool:
-		"""Send a recurring timeLimit:update payload."""
+		"""Send a recurring timeLimit:update payload via PUT."""
 		try:
 			session = await self._get_session()
 			cookie_header = self._get_cookie_header()
 			url = self._people_url(account_id, "timeLimit:update")
 
-			async with session.post(
+			async with session.put(
 				url,
 				headers={
 					"Content-Type": "application/json+protobuf",
@@ -2448,6 +2449,16 @@ class FamilyLinkClient:
 		except Exception as err:
 			_LOGGER.error("Unexpected error updating %s: %s", description, err)
 			return False
+
+	def _raise_partial_schedule_update(
+		self,
+		successful_updates: list[str],
+		failed_update: str,
+	) -> None:
+		"""Raise or log a failed schedule sub-write."""
+		if successful_updates:
+			raise ScheduleUpdatePartialError(successful_updates, failed_update)
+		_LOGGER.error("Failed to update %s", failed_update)
 
 	async def async_set_bedtime_schedule(
 		self,
@@ -2473,21 +2484,28 @@ class FamilyLinkClient:
 			return False
 
 		try:
+			successful_updates: list[str] = []
 			if has_window:
+				description = f"bedtime schedule for day {day}"
 				payload = build_bedtime_schedule_update_payload(
 					account_id, day, start_time, end_time
 				)
 				if not await self._async_update_time_limit(
-					account_id, payload, f"bedtime schedule for day {day}"
+					account_id, payload, description
 				):
+					self._raise_partial_schedule_update(successful_updates, description)
 					return False
+				successful_updates.append(description)
 
 			if enabled is not None:
+				description = f"bedtime schedule enabled state for day {day}"
 				payload = build_bedtime_day_enabled_update_payload(account_id, day, enabled)
 				if not await self._async_update_time_limit(
-					account_id, payload, f"bedtime schedule enabled state for day {day}"
+					account_id, payload, description
 				):
+					self._raise_partial_schedule_update(successful_updates, description)
 					return False
+				successful_updates.append(description)
 
 			return True
 
@@ -2514,21 +2532,28 @@ class FamilyLinkClient:
 			return False
 
 		try:
+			successful_updates: list[str] = []
 			if daily_minutes is not None:
+				description = f"daily limit schedule for day {day}"
 				payload = build_daily_limit_schedule_update_payload(
 					account_id, day, daily_minutes
 				)
 				if not await self._async_update_time_limit(
-					account_id, payload, f"daily limit schedule for day {day}"
+					account_id, payload, description
 				):
+					self._raise_partial_schedule_update(successful_updates, description)
 					return False
+				successful_updates.append(description)
 
 			if enabled is not None:
+				description = f"daily limit schedule enabled state for day {day}"
 				payload = build_daily_limit_day_enabled_update_payload(account_id, day, enabled)
 				if not await self._async_update_time_limit(
-					account_id, payload, f"daily limit schedule enabled state for day {day}"
+					account_id, payload, description
 				):
+					self._raise_partial_schedule_update(successful_updates, description)
 					return False
+				successful_updates.append(description)
 
 			return True
 

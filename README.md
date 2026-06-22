@@ -123,7 +123,7 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
   - **ON** = Device unlocked (child can use device) 📱
   - **OFF** = Device locked (device is locked) 🔒
   - Attributes include effective bedtime window details: `bedtime_window_start`, `bedtime_window_end`, `bedtime_window_label`, `bedtime_window_source`, `bedtime_weekly_window_label`, `bedtime_window_differs_from_weekly`, `bedtime_today_source`, and `bedtime_today_override_action`
-  - `bedtime_window_source` is `weekly` when today's effective window matches the recurring schedule, `today_override` when Google is applying a one-day override, or `none` when no effective bedtime window is active
+  - `bedtime_window_source` is `weekly` when the active effective window comes from the recurring schedule, `today_override` when it comes from a one-day override (even if the hours match weekly), or `none` when no effective bedtime window is active
   - `bedtime_today_source` is `weekly` or `today_override` even when today's override disables downtime and no effective bedtime window exists; `bedtime_today_override_action` mirrors Google's raw action (`1` = disabled today, `2` = enabled today)
 
 #### Buttons

@@ -34,7 +34,7 @@ from .const import (
 	SERVICE_UNBLOCK_APP,
 )
 from .coordinator import FamilyLinkDataUpdateCoordinator
-from .exceptions import FamilyLinkException
+from .exceptions import FamilyLinkException, ScheduleUpdatePartialError
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -735,6 +735,10 @@ async def async_setup_services(hass: HomeAssistant, coordinator: FamilyLinkDataU
 				await coordinator.async_request_refresh()
 			else:
 				_LOGGER.error("Failed to update bedtime schedule")
+		except ScheduleUpdatePartialError as err:
+			_LOGGER.error("Partial bedtime schedule update: %s", err)
+			await coordinator.async_request_refresh()
+			raise
 		except Exception as err:
 			_LOGGER.error("Error updating bedtime schedule: %s", err)
 			raise
@@ -772,6 +776,10 @@ async def async_setup_services(hass: HomeAssistant, coordinator: FamilyLinkDataU
 				await coordinator.async_request_refresh()
 			else:
 				_LOGGER.error("Failed to update daily limit schedule")
+		except ScheduleUpdatePartialError as err:
+			_LOGGER.error("Partial daily limit schedule update: %s", err)
+			await coordinator.async_request_refresh()
+			raise
 		except Exception as err:
 			_LOGGER.error("Error updating daily limit schedule: %s", err)
 			raise

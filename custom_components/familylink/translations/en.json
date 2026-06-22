@@ -57,7 +57,7 @@
 			"url_required": "URL is required",
 			"no_cookies": "Server is reachable but no cookies found. Please authenticate first via the web interface.",
 				"invalid_api_key": "The server requires an API key. Append ?api_key=<key> to the URL — the key is in the 'api_key' file of the auth container's data directory (e.g. ./data/api_key).",
-				"invalid_timezone": "Use a valid IANA timezone such as Asia/Jerusalem, or leave the field blank for automatic detection.",
+				"invalid_timezone": "Use a valid IANA timezone such as Asia/Jerusalem, or leave the field blank to use the Google device timezone when available.",
 				"unknown": "Unexpected error occurred"
 		},
 		"abort": {
