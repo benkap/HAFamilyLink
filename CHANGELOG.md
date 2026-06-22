@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Recurring schedule services:
   - `familylink.set_bedtime_schedule` updates a weekday bedtime window and enabled state.
   - `familylink.set_daily_limit_schedule` updates weekday daily limit minutes and enabled state.
+  - School time weekly schedule writes are intentionally out of scope for this change; school time remains read-only at the schedule level, with existing today override controls.
+- Device switches now expose effective bedtime window attributes, including whether today's applied window matches the recurring weekly schedule or comes from a one-day override. They also expose today's bedtime source even when the one-day override disables downtime and no effective window exists.
 
 ---
 

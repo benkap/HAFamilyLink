@@ -100,6 +100,7 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 - `familylink.set_bedtime_schedule` - Update a recurring bedtime weekday window and enabled state
 - `familylink.set_daily_limit_schedule` - Update recurring daily limit minutes and enabled state for one weekday
 - `familylink.set_bedtime` and `familylink.set_daily_limit` remain one-day override services
+- School time schedules are exposed read-only through `sensor.<child>_school_time_schedule`. This fork's recurring schedule write work focuses on bedtime and daily limits; it does not implement weekly school time schedule editing.
 
 ### Per-Device Entities
 
@@ -120,6 +121,9 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 - `switch.<device>` - Lock/unlock device
   - **ON** = Device unlocked (child can use device) 📱
   - **OFF** = Device locked (device is locked) 🔒
+  - Attributes include effective bedtime window details: `bedtime_window_start`, `bedtime_window_end`, `bedtime_window_label`, `bedtime_window_source`, `bedtime_weekly_window_label`, `bedtime_window_differs_from_weekly`, `bedtime_today_source`, and `bedtime_today_override_action`
+  - `bedtime_window_source` is `weekly` when today's effective window matches the recurring schedule, `today_override` when Google is applying a one-day override, or `none` when no effective bedtime window is active
+  - `bedtime_today_source` is `weekly` or `today_override` even when today's override disables downtime and no effective bedtime window exists; `bedtime_today_override_action` mirrors Google's raw action (`1` = disabled today, `2` = enabled today)
 
 #### Buttons
 - `button.<device>_15min` - Add 15 minutes bonus

@@ -98,6 +98,72 @@ def test_parse_daily_limit_schedule_ignores_malformed_rows():
 	]
 
 
+def test_describe_effective_window_marks_weekly_match():
+	weekly_schedule = [{
+		"day": 7,
+		"day_name": "Sunday",
+		"enabled": True,
+		"start": [21, 0],
+		"end": [6, 30],
+		"state_flag": 2,
+	}]
+
+	assert schedules.describe_effective_window("21:00", "06:30", weekly_schedule, 7) == {
+		"start": "21:00",
+		"end": "06:30",
+		"label": "21:00-06:30",
+		"source": "weekly",
+		"weekly_start": "21:00",
+		"weekly_end": "06:30",
+		"weekly_label": "21:00-06:30",
+		"differs_from_weekly": False,
+	}
+
+
+def test_describe_effective_window_marks_today_override():
+	weekly_schedule = [{
+		"day": 7,
+		"day_name": "Sunday",
+		"enabled": True,
+		"start": [18, 30],
+		"end": [6, 30],
+		"state_flag": 2,
+	}]
+
+	assert schedules.describe_effective_window("21:00", "06:30", weekly_schedule, 7) == {
+		"start": "21:00",
+		"end": "06:30",
+		"label": "21:00-06:30",
+		"source": "today_override",
+		"weekly_start": "18:30",
+		"weekly_end": "06:30",
+		"weekly_label": "18:30-06:30",
+		"differs_from_weekly": True,
+	}
+
+
+def test_describe_effective_window_handles_missing_weekly_slot():
+	weekly_schedule = [{
+		"day": 6,
+		"day_name": "Saturday",
+		"enabled": True,
+		"start": [21, 0],
+		"end": [6, 30],
+		"state_flag": 2,
+	}]
+
+	assert schedules.describe_effective_window("21:00", "06:30", weekly_schedule, 7) == {
+		"start": "21:00",
+		"end": "06:30",
+		"label": "21:00-06:30",
+		"source": "today_override",
+		"weekly_start": None,
+		"weekly_end": None,
+		"weekly_label": None,
+		"differs_from_weekly": False,
+	}
+
+
 def test_build_bedtime_schedule_update_payload():
 	assert schedules.build_bedtime_schedule_update_payload(
 		"child123", 7, "21:15", "06:30"

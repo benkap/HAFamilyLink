@@ -1258,6 +1258,8 @@ class FamilyLinkClient:
 							"daily_limit_enabled": False,
 							"daily_limit_minutes": 0,
 							"bedtime_window": None,
+							"bedtime_window_start": None,
+							"bedtime_window_end": None,
 							"schooltime_window": None,
 							"bedtime_active": False,
 							"schooltime_active": False,
@@ -1423,9 +1425,13 @@ class FamilyLinkClient:
 													"start_ms": int(start_dt.timestamp() * 1000),
 													"end_ms": int(end_dt.timestamp() * 1000)
 												}
+												window_start = f"{start_hour:02d}:{start_min:02d}"
+												window_end = f"{end_hour:02d}:{end_min:02d}"
 
 												if parse_as_bedtime:
 													device_info["bedtime_window"] = window_data
+													device_info["bedtime_window_start"] = window_start
+													device_info["bedtime_window_end"] = window_end
 													device_info["bedtime_active"] = window_active
 													# An enabled bedtime rule exists for today on this
 													# device — switch must show ON regardless of weekly
@@ -1434,7 +1440,7 @@ class FamilyLinkClient:
 
 													_LOGGER.debug(
 														f"Device {device_id}: Bedtime window parsed - "
-														f"start={start_hour:02d}:{start_min:02d}, end={end_hour:02d}:{end_min:02d}, "
+														f"start={window_start}, end={window_end}, "
 														f"current_time={now.strftime('%H:%M')}, active={window_active}"
 													)
 												elif parse_as_schooltime:
@@ -2635,6 +2641,8 @@ class FamilyLinkClient:
 				# Picking by list position silently read a stale override and
 				# made the switch ignore a fresh "Only today" toggle.
 				bedtime_enabled_today = bedtime_enabled
+				bedtime_today_source = "weekly"
+				bedtime_today_override_action = None
 				today_day_code = self._DAY_CODES.get(dt_util.now().isoweekday())
 				if today_day_code and isinstance(data, list):
 					latest_ts = -1
@@ -2670,6 +2678,8 @@ class FamilyLinkClient:
 								latest_action = action
 					if latest_action is not None:
 						bedtime_enabled_today = (latest_action == 2)
+						bedtime_today_source = "today_override"
+						bedtime_today_override_action = latest_action
 						_LOGGER.debug(
 							f"Most recent bedtime override for today (day_code="
 							f"{today_day_code}, ts={latest_ts}): action={latest_action} "
@@ -2691,6 +2701,8 @@ class FamilyLinkClient:
 					# override if one exists for today (issue #113). Falls back to
 					# the weekly value when no override is posted for today.
 					"bedtime_enabled_today": bedtime_enabled_today,
+					"bedtime_today_source": bedtime_today_source,
+					"bedtime_today_override_action": bedtime_today_override_action,
 					"bedtime_schedule": bedtime_schedule,
 					"school_time_schedule": school_time_schedule,
 					"daily_limit_schedule": daily_limit_schedule,

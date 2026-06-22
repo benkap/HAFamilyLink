@@ -227,3 +227,53 @@ def parse_daily_limit_schedule(config: Any) -> list[dict[str, Any]]:
 		}
 
 	return [schedules_by_day[day] for day in sorted(schedules_by_day)]
+
+
+def describe_effective_window(
+	effective_start: str | None,
+	effective_end: str | None,
+	weekly_schedule: list[dict[str, Any]] | None,
+	day: int,
+) -> dict[str, Any]:
+	"""Describe whether today's effective window matches the recurring schedule."""
+	result = {
+		"start": effective_start,
+		"end": effective_end,
+		"label": None,
+		"source": "none",
+		"weekly_start": None,
+		"weekly_end": None,
+		"weekly_label": None,
+		"differs_from_weekly": False,
+	}
+
+	if effective_start and effective_end:
+		result["label"] = f"{effective_start}-{effective_end}"
+
+	if not _is_int(day) or day not in DAY_NAMES:
+		return result
+
+	for slot in weekly_schedule or []:
+		if not isinstance(slot, dict) or slot.get("day") != day or not slot.get("enabled"):
+			continue
+
+		start = slot.get("start")
+		end = slot.get("end")
+		if not (_is_time_pair(start) and _is_time_pair(end)):
+			continue
+
+		result["weekly_start"] = format_time_pair(start)
+		result["weekly_end"] = format_time_pair(end)
+		result["weekly_label"] = f"{result['weekly_start']}-{result['weekly_end']}"
+		break
+
+	if not result["label"]:
+		return result
+
+	if result["weekly_label"] == result["label"]:
+		result["source"] = "weekly"
+		return result
+
+	result["source"] = "today_override"
+	result["differs_from_weekly"] = result["weekly_label"] is not None
+	return result
