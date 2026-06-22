@@ -35,10 +35,26 @@ from .const import (
 )
 from .coordinator import FamilyLinkDataUpdateCoordinator
 from .exceptions import FamilyLinkException, ScheduleUpdatePartialError
+from .schedules import parse_time_string
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.DEVICE_TRACKER, Platform.SENSOR, Platform.SWITCH]
+
+
+def _valid_schedule_time(value: str) -> str:
+	"""Validate an HH:MM time string accepted by Family Link schedule writes."""
+	parts = value.split(":") if isinstance(value, str) else []
+	if (
+		len(parts) != 2
+		or not 1 <= len(parts[0]) <= 2
+		or len(parts[1]) != 2
+		or not parts[0].isdigit()
+		or not parts[1].isdigit()
+	):
+		raise ValueError("Expected time in HH:MM format")
+	parse_time_string(value)
+	return value
 
 # Service schemas
 SCHEMA_BLOCK_DEVICE_FOR_SCHOOL = vol.Schema({
@@ -118,16 +134,16 @@ SCHEMA_SET_DAILY_LIMIT = vol.Schema({
 })
 
 SCHEMA_SET_BEDTIME = vol.Schema({
-	vol.Required("start_time"): vol.Match(r"^\d{1,2}:\d{2}$"),
-	vol.Required("end_time"): vol.Match(r"^\d{1,2}:\d{2}$"),
+	vol.Required("start_time"): _valid_schedule_time,
+	vol.Required("end_time"): _valid_schedule_time,
 	vol.Optional("day"): vol.All(vol.Coerce(int), vol.Range(min=1, max=7)),
 	vol.Optional("child_id"): cv.string,
 })
 
 SCHEMA_SET_BEDTIME_SCHEDULE = vol.Schema({
 	vol.Required("day"): vol.All(vol.Coerce(int), vol.Range(min=1, max=7)),
-	vol.Optional("start_time"): vol.Match(r"^\d{1,2}:\d{2}$"),
-	vol.Optional("end_time"): vol.Match(r"^\d{1,2}:\d{2}$"),
+	vol.Optional("start_time"): _valid_schedule_time,
+	vol.Optional("end_time"): _valid_schedule_time,
 	vol.Optional("enabled"): cv.boolean,
 	vol.Optional("entity_id"): cv.entity_id,
 	vol.Optional("child_id"): cv.string,

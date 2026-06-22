@@ -22,7 +22,7 @@ from .const import (
 	LOGGER_NAME,
 )
 from .exceptions import FamilyLinkException, SessionExpiredError
-from .schedules import describe_effective_window
+from .schedules import describe_effective_window, effective_bedtime_window_source
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -339,10 +339,8 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 						bedtime_schedule,
 						time_limit_config.get("schedule_today") or self.client.schedule_today(child_id),
 					)
-					time_data["bedtime_window_source"] = (
-						bedtime_today_source
-						if bedtime_window["label"] and bedtime_today_source
-						else bedtime_window["source"]
+					time_data["bedtime_window_source"] = effective_bedtime_window_source(
+						bedtime_window, bedtime_today_source
 					)
 					time_data["bedtime_window_label"] = bedtime_window["label"]
 					time_data["bedtime_weekly_window_label"] = bedtime_window["weekly_label"]

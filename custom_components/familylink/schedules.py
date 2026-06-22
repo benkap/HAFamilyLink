@@ -312,3 +312,13 @@ def describe_effective_window(
 	result["source"] = "today_override"
 	result["differs_from_weekly"] = result["weekly_label"] is not None
 	return result
+
+
+def effective_bedtime_window_source(
+	bedtime_window: dict[str, Any],
+	bedtime_today_source: str | None,
+) -> str:
+	"""Return the source label for the active effective bedtime window."""
+	if bedtime_window.get("label") and bedtime_today_source:
+		return bedtime_today_source
+	return bedtime_window.get("source") or "none"
