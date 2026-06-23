@@ -32,6 +32,10 @@ def _entity_by_unique_id(entities, unique_id):
 	return next(entity for entity in entities if entity.unique_id == unique_id)
 
 
+def _sensor_by_unique_id(entities, unique_id):
+	return _entity_by_unique_id(entities, unique_id)
+
+
 def _patch_pending_time_limit_state(coordinator):
 	"""Patch pending-state helpers onto a lightweight coordinator."""
 	pending_states = {}
@@ -143,6 +147,215 @@ async def test_schedule_sensors_expose_weekday_today_and_timezone_attributes(
 	assert bedtime.extra_state_attributes["schedule_timezone"] == "UTC"
 	assert bedtime.extra_state_attributes["schedule_timezone_source"] == "config"
 	assert daily_limit.extra_state_attributes["monday"] == "120 min"
+
+
+async def test_screen_time_sensors_expose_usage_summary_and_app_breakdown(
+	hass, mock_config_entry, harness_coordinator
+):
+	"""Screen time sensors expose totals and app usage in sorted order."""
+	entities = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, sensor
+	)
+	screen_time = _sensor_by_unique_id(
+		entities, f"{DOMAIN}_{TEST_CHILD_ID}_screen_time_total"
+	)
+	formatted = _sensor_by_unique_id(
+		entities, f"{DOMAIN}_{TEST_CHILD_ID}_screen_time_formatted"
+	)
+
+	assert screen_time.native_value == 90
+	assert screen_time.available is True
+	assert screen_time.extra_state_attributes["total_seconds"] == 5400
+	assert screen_time.extra_state_attributes["app_count"] == 2
+	assert screen_time.extra_state_attributes["apps"] == [
+		{
+			"name": "YouTube",
+			"package": "com.google.android.youtube",
+			"time": "01:00:00",
+			"minutes": 60.0,
+		},
+		{
+			"name": "Spotify",
+			"package": "com.spotify.music",
+			"time": "00:30:00",
+			"minutes": 30.0,
+		},
+	]
+	assert formatted.native_value == "01:30:00"
+	assert formatted.extra_state_attributes["total_minutes"] == 90
+
+
+@pytest.mark.parametrize(
+	("unique_id", "value", "apps_attr"),
+	[
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_blocked_apps",
+			1,
+			[{"name": "YouTube", "package": "com.google.android.youtube"}],
+		),
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_apps_with_limits",
+			1,
+			[
+				{
+					"name": "Spotify",
+					"package": "com.spotify.music",
+					"limit_minutes": 45,
+					"enabled": True,
+				}
+			],
+		),
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_always_allowed_apps",
+			1,
+			[{"name": "Calculator", "package": "com.android.calculator2"}],
+		),
+	],
+)
+async def test_app_category_sensors_list_matching_apps(
+	hass, mock_config_entry, harness_coordinator, unique_id, value, apps_attr
+):
+	"""App category sensors list the apps behind each count."""
+	entities = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, sensor
+	)
+	entity = _sensor_by_unique_id(entities, unique_id)
+
+	assert entity.native_value == value
+	assert entity.available is True
+	assert entity.extra_state_attributes["count"] == value
+	assert entity.extra_state_attributes["apps"] == apps_attr
+
+
+async def test_apps_without_limits_sensor_handles_empty_result(
+	hass, mock_config_entry, harness_coordinator
+):
+	"""Apps-without-limits sensor returns zero and no bulky attributes when empty."""
+	entities = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, sensor
+	)
+	entity = _sensor_by_unique_id(
+		entities, f"{DOMAIN}_{TEST_CHILD_ID}_apps_without_limits"
+	)
+
+	assert entity.native_value == 0
+	assert entity.available is True
+	assert entity.extra_state_attributes == {}
+
+
+async def test_top_app_sensors_rank_usage_and_hide_missing_ranks(
+	hass, mock_config_entry, harness_coordinator
+):
+	"""Top app sensors sort by usage and mark ranks without data unavailable."""
+	entities = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, sensor
+	)
+	first = _sensor_by_unique_id(entities, f"{DOMAIN}_{TEST_CHILD_ID}_top_app_1")
+	second = _sensor_by_unique_id(entities, f"{DOMAIN}_{TEST_CHILD_ID}_top_app_2")
+	third = _sensor_by_unique_id(entities, f"{DOMAIN}_{TEST_CHILD_ID}_top_app_3")
+
+	assert first.native_value == 60
+	assert first.available is True
+	assert first.extra_state_attributes["app_name"] == "YouTube"
+	assert first.extra_state_attributes["formatted_time"] == "01:00:00"
+	assert second.native_value == 30
+	assert second.extra_state_attributes["app_name"] == "Spotify"
+	assert third.native_value is None
+	assert third.available is False
+	assert third.extra_state_attributes == {}
+
+
+async def test_child_and_device_summary_sensors_expose_details(
+	hass, mock_config_entry, harness_coordinator
+):
+	"""Child and device summary sensors expose useful identifying attributes."""
+	entities = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, sensor
+	)
+	child_info = _sensor_by_unique_id(entities, f"{DOMAIN}_{TEST_CHILD_ID}_child_info")
+	device_count = _sensor_by_unique_id(
+		entities, f"{DOMAIN}_{TEST_CHILD_ID}_device_count"
+	)
+
+	assert child_info.native_value == "Alex"
+	assert child_info.available is True
+	assert child_info.extra_state_attributes["birthday"] == "2016-06-23"
+	assert child_info.extra_state_attributes["email"] == "alex@example.test"
+	assert child_info.extra_state_attributes["age_band"] == "Child"
+	assert device_count.native_value == 1
+	assert device_count.extra_state_attributes["devices"] == [
+		{"name": "Pixel Tablet", "model": "Pixel Tablet", "id": TEST_DEVICE_ID}
+	]
+
+
+async def test_device_quota_bonus_and_restriction_sensors_reflect_time_data(
+	hass, mock_config_entry, harness_coordinator
+):
+	"""Device-level sensors expose quota, bonus, and restriction state."""
+	entities = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, sensor
+	)
+	remaining = _sensor_by_unique_id(
+		entities, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_screen_time_remaining"
+	)
+	daily_limit = _sensor_by_unique_id(
+		entities, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_daily_limit"
+	)
+	active_bonus = _sensor_by_unique_id(
+		entities, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_active_bonus"
+	)
+	next_restriction = _sensor_by_unique_id(
+		entities, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_next_restriction"
+	)
+
+	assert remaining.native_value == 60
+	assert remaining.extra_state_attributes["percentage_used"] == 50.0
+	assert daily_limit.native_value == 120
+	assert daily_limit.extra_state_attributes["enabled"] is True
+	assert active_bonus.native_value == 15
+	assert active_bonus.extra_state_attributes["has_bonus"] is True
+	assert next_restriction.native_value == "No restrictions"
+
+	time_data = harness_coordinator.data["children_data"][0]["devices_time_data"][
+		TEST_DEVICE_ID
+	]
+	time_data["bonus_minutes"] = 0
+	time_data["remaining_minutes"] = 20
+
+	assert active_bonus.native_value == 0
+	assert active_bonus.extra_state_attributes["has_bonus"] is False
+	assert next_restriction.native_value == "Daily limit 20min remaining"
+
+
+@pytest.mark.parametrize(
+	("battery_level", "icon"),
+	[
+		(95, "mdi:battery"),
+		(75, "mdi:battery-80"),
+		(55, "mdi:battery-60"),
+		(35, "mdi:battery-40"),
+		(15, "mdi:battery-20"),
+		(5, "mdi:battery-alert-variant-outline"),
+		(None, "mdi:battery-unknown"),
+	],
+)
+async def test_battery_sensor_icons_follow_battery_level(
+	hass, mock_config_entry, harness_coordinator, battery_level, icon
+):
+	"""Battery sensor chooses an icon for each battery range."""
+	harness_coordinator.data["children_data"][0]["location"][
+		"battery_level"
+	] = battery_level
+	entities = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, sensor
+	)
+	battery = _sensor_by_unique_id(
+		entities, f"{DOMAIN}_{TEST_CHILD_ID}_battery_level"
+	)
+
+	assert battery.native_value == battery_level
+	assert battery.icon == icon
+	assert battery.available is (battery_level is not None)
 
 
 async def test_device_switch_reflects_lock_limit_bedtime_and_bonus_priority(
