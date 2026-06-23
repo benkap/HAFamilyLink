@@ -1,8 +1,16 @@
 """Tests for entity platform creation from coordinator data."""
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
+import pytest
+
 from custom_components.familylink import binary_sensor, button, device_tracker, sensor, switch
-from custom_components.familylink.const import DOMAIN
+from custom_components.familylink.const import (
+	DEVICE_LOCK_ACTION,
+	DEVICE_UNLOCK_ACTION,
+	DOMAIN,
+)
 
 from conftest import TEST_CHILD_ID, TEST_DEVICE_ID
 
@@ -22,6 +30,24 @@ async def _entities_for_platform(hass, mock_config_entry, harness_coordinator, p
 
 def _entity_by_unique_id(entities, unique_id):
 	return next(entity for entity in entities if entity.unique_id == unique_id)
+
+
+def _patch_pending_time_limit_state(coordinator):
+	"""Patch pending-state helpers onto a lightweight coordinator."""
+	pending_states = {}
+
+	def get_pending_time_limit_state(child_id, limit_type):
+		return pending_states.get((child_id, limit_type))
+
+	def set_pending_time_limit_state(child_id, limit_type, enabled):
+		if enabled is None:
+			pending_states.pop((child_id, limit_type), None)
+		else:
+			pending_states[(child_id, limit_type)] = enabled
+
+	coordinator.get_pending_time_limit_state = get_pending_time_limit_state
+	coordinator.set_pending_time_limit_state = set_pending_time_limit_state
+	return pending_states
 
 
 async def test_sensor_entities_include_unique_ids_device_info_and_attributes(
@@ -162,19 +188,7 @@ async def test_time_limit_switches_prefer_pending_state_then_today_state(
 	hass, mock_config_entry, harness_coordinator
 ):
 	"""Child switches use pending UI state before today-effective API state."""
-	pending_states = {}
-
-	def get_pending_time_limit_state(child_id, limit_type):
-		return pending_states.get((child_id, limit_type))
-
-	def set_pending_time_limit_state(child_id, limit_type, enabled):
-		if enabled is None:
-			pending_states.pop((child_id, limit_type), None)
-		else:
-			pending_states[(child_id, limit_type)] = enabled
-
-	harness_coordinator.get_pending_time_limit_state = get_pending_time_limit_state
-	harness_coordinator.set_pending_time_limit_state = set_pending_time_limit_state
+	pending_states = _patch_pending_time_limit_state(harness_coordinator)
 	child_data = harness_coordinator.data["children_data"][0]
 	child_data["bedtime_enabled"] = True
 	child_data["bedtime_enabled_today"] = False
@@ -185,8 +199,143 @@ async def test_time_limit_switches_prefer_pending_state_then_today_state(
 	bedtime = _entity_by_unique_id(switches, f"{DOMAIN}_{TEST_CHILD_ID}_bedtime")
 
 	assert bedtime.is_on is False
-	set_pending_time_limit_state(TEST_CHILD_ID, "bedtime", True)
+	pending_states[(TEST_CHILD_ID, "bedtime")] = True
 	assert bedtime.is_on is True
+
+
+@pytest.mark.parametrize(
+	(
+		"unique_id",
+		"limit_type",
+		"turn_method",
+		"client_method",
+		"expected_pending",
+	),
+	[
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_bedtime",
+			"bedtime",
+			"async_turn_on",
+			"async_enable_bedtime",
+			True,
+		),
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_bedtime",
+			"bedtime",
+			"async_turn_off",
+			"async_disable_bedtime",
+			False,
+		),
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_school_time",
+			"school_time",
+			"async_turn_on",
+			"async_enable_school_time",
+			True,
+		),
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_school_time",
+			"school_time",
+			"async_turn_off",
+			"async_disable_school_time",
+			False,
+		),
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_daily_limit",
+			"daily_limit",
+			"async_turn_on",
+			"async_enable_daily_limit",
+			True,
+		),
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_daily_limit",
+			"daily_limit",
+			"async_turn_off",
+			"async_disable_daily_limit",
+			False,
+		),
+	],
+)
+async def test_time_limit_switch_actions_update_pending_state_and_refresh(
+	hass,
+	mock_config_entry,
+	harness_coordinator,
+	unique_id,
+	limit_type,
+	turn_method,
+	client_method,
+	expected_pending,
+):
+	"""Child switch actions dispatch to the client and refresh on success."""
+	pending_states = _patch_pending_time_limit_state(harness_coordinator)
+	switches = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, switch
+	)
+	entity = _entity_by_unique_id(switches, unique_id)
+	entity.async_write_ha_state = lambda: None
+
+	await getattr(entity, turn_method)()
+
+	assert pending_states[(TEST_CHILD_ID, limit_type)] is expected_pending
+	getattr(harness_coordinator.client, client_method).assert_awaited_once_with(
+		account_id=TEST_CHILD_ID
+	)
+	harness_coordinator.async_request_refresh.assert_awaited_once()
+
+
+async def test_time_limit_switch_failed_action_clears_pending_state(
+	hass, mock_config_entry, harness_coordinator
+):
+	"""Failed child switch actions clear optimistic UI state and skip refresh."""
+	pending_states = _patch_pending_time_limit_state(harness_coordinator)
+	harness_coordinator.client.async_enable_bedtime.return_value = False
+	switches = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, switch
+	)
+	bedtime = _entity_by_unique_id(switches, f"{DOMAIN}_{TEST_CHILD_ID}_bedtime")
+	bedtime.async_write_ha_state = lambda: None
+
+	await bedtime.async_turn_on()
+
+	assert (TEST_CHILD_ID, "bedtime") not in pending_states
+	harness_coordinator.client.async_enable_bedtime.assert_awaited_once_with(
+		account_id=TEST_CHILD_ID
+	)
+	harness_coordinator.async_request_refresh.assert_not_awaited()
+
+
+async def test_device_switch_actions_control_device_and_cancel_bonus_first(
+	hass, mock_config_entry, harness_coordinator, monkeypatch
+):
+	"""Device switch actions unlock, or cancel bonus before locking."""
+	switches = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, switch
+	)
+	device_switch = _entity_by_unique_id(
+		switches, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}"
+	)
+	harness_coordinator.async_control_device = AsyncMock(return_value=True)
+	sleep = AsyncMock()
+	monkeypatch.setattr("custom_components.familylink.switch.asyncio.sleep", sleep)
+
+	await device_switch.async_turn_on()
+	await device_switch.async_turn_off()
+
+	assert harness_coordinator.async_control_device.await_args_list[0].args == (
+		TEST_DEVICE_ID,
+		DEVICE_UNLOCK_ACTION,
+		TEST_CHILD_ID,
+	)
+	harness_coordinator.client.async_cancel_time_bonus.assert_awaited_once_with(
+		override_id="bonus-1",
+		account_id=TEST_CHILD_ID,
+	)
+	sleep.assert_awaited_once_with(1)
+	assert harness_coordinator.async_control_device.await_args_list[1].args == (
+		TEST_DEVICE_ID,
+		DEVICE_LOCK_ACTION,
+		TEST_CHILD_ID,
+	)
 
 
 async def test_button_presses_dispatch_to_client_and_refresh(
@@ -216,3 +365,96 @@ async def test_button_presses_dispatch_to_client_and_refresh(
 		child_id=TEST_CHILD_ID,
 	)
 	harness_coordinator.async_request_refresh.assert_awaited_once()
+
+
+async def test_cancel_bonus_button_dispatches_only_when_bonus_exists(
+	hass, mock_config_entry, harness_coordinator
+):
+	"""Cancel bonus button availability and dispatch follow coordinator data."""
+	buttons = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, button
+	)
+	cancel = _entity_by_unique_id(
+		buttons, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_reset_bonus"
+	)
+
+	assert cancel.available is True
+	await cancel.async_press()
+
+	harness_coordinator.client.async_cancel_time_bonus.assert_awaited_once_with(
+		override_id="bonus-1",
+		account_id=TEST_CHILD_ID,
+	)
+	harness_coordinator.async_request_refresh.assert_awaited_once()
+
+	harness_coordinator.client.async_cancel_time_bonus.reset_mock()
+	harness_coordinator.async_request_refresh.reset_mock()
+	harness_coordinator.data["children_data"][0]["devices_time_data"][TEST_DEVICE_ID][
+		"bonus_override_id"
+	] = None
+
+	assert cancel.available is False
+	await cancel.async_press()
+
+	harness_coordinator.client.async_cancel_time_bonus.assert_not_awaited()
+	harness_coordinator.async_request_refresh.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+	("unique_id", "field", "active_value", "active_icon", "inactive_icon"),
+	[
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_bedtime_active",
+			"bedtime_active",
+			True,
+			"mdi:sleep",
+			"mdi:sleep-off",
+		),
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_schooltime_active",
+			"schooltime_active",
+			True,
+			"mdi:school",
+			"mdi:school-outline",
+		),
+		(
+			f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_daily_limit_reached",
+			"daily_limit_remaining",
+			0,
+			"mdi:timer-alert",
+			"mdi:timer-check",
+		),
+	],
+)
+async def test_binary_sensor_states_icons_and_availability(
+	hass,
+	mock_config_entry,
+	harness_coordinator,
+	unique_id,
+	field,
+	active_value,
+	active_icon,
+	inactive_icon,
+):
+	"""Binary sensors derive state, icon, and availability from device time data."""
+	entities = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, binary_sensor
+	)
+	entity = _entity_by_unique_id(entities, unique_id)
+	time_data = harness_coordinator.data["children_data"][0]["devices_time_data"][
+		TEST_DEVICE_ID
+	]
+
+	assert entity.is_on is False
+	assert entity.icon == inactive_icon
+	assert entity.available is True
+
+	time_data[field] = active_value
+
+	assert entity.is_on is True
+	assert entity.icon == active_icon
+
+	harness_coordinator.data["children_data"][0]["devices_time_data"].clear()
+
+	assert entity.available is False
+	assert entity.extra_state_attributes == {}
