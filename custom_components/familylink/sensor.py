@@ -498,6 +498,7 @@ class FamilyLinkScheduleSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes."""
+        child_data = self._get_child_data()
         schedule = self._get_schedule()
         enabled = self._is_enabled(schedule)
         slots_by_day = {
