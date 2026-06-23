@@ -1,0 +1,81 @@
+name: Trivy
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "familylink-playwright/**"
+      - ".github/workflows/trivy.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "familylink-playwright/**"
+      - ".github/workflows/trivy.yml"
+  schedule:
+    - cron: "26 5 * * 6" # Saturday 05:26 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    name: Build and scan Docker images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Home Assistant add-on image
+        run: |
+          docker build \
+            -t hafamilylink-auth-addon:${{ github.sha }} \
+            -f familylink-playwright/Dockerfile \
+            familylink-playwright
+
+      - name: Build standalone image
+        run: |
+          docker build \
+            -t hafamilylink-auth-standalone:${{ github.sha }} \
+            -f familylink-playwright/Dockerfile.standalone \
+            familylink-playwright
+
+      - name: Scan Home Assistant add-on image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: hafamilylink-auth-addon:${{ github.sha }}
+          scanners: vuln
+          vuln-type: os,library
+          format: sarif
+          output: trivy-addon.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Scan standalone image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: hafamilylink-auth-standalone:${{ github.sha }}
+          scanners: vuln
+          vuln-type: os,library
+          format: sarif
+          output: trivy-standalone.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Upload add-on SARIF
+        if: always() && hashFiles('trivy-addon.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-addon.sarif
+          category: trivy-addon
+
+      - name: Upload standalone SARIF
+        if: always() && hashFiles('trivy-standalone.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-standalone.sarif
+          category: trivy-standalone
