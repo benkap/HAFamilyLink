@@ -1,6 +1,11 @@
 name: Trivy
 
 on:
+  push:
+    branches: ["main"]
+    paths:
+      - "familylink-playwright/**"
+      - ".github/workflows/trivy.yml"
   pull_request:
     branches: ["main"]
     paths:
@@ -29,6 +34,20 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hafamilylink-auth-addon:${{ github.sha }}
+          scanners: vuln
+          vuln-type: os,library
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Build standalone image
+        run: docker build -t hafamilylink-auth-standalone:${{ github.sha }} -f familylink-playwright/Dockerfile.standalone familylink-playwright
+
+      - name: Scan standalone image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: hafamilylink-auth-standalone:${{ github.sha }}
           scanners: vuln
           vuln-type: os,library
           format: table
