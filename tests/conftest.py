@@ -1,13 +1,17 @@
 """Home Assistant test harness fixtures for the Family Link integration."""
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from homeassistant.core import HassJob
 from homeassistant.const import CONF_NAME
+from pytest_homeassistant_custom_component import plugins as ha_test_plugins
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.familylink.const import (
@@ -35,6 +39,54 @@ TEST_AUTH_URL = "http://familylink-auth.local:8099?api_key=test-api-key"
 def auto_enable_custom_integrations(enable_custom_integrations, mock_network):
 	"""Load custom integrations and keep network helpers mocked for every test."""
 	yield
+
+
+@pytest.fixture(autouse=True)
+def verify_cleanup(event_loop, expected_lingering_tasks, expected_lingering_timers):
+	"""Keep HA cleanup checks, allowing HA's safe-shutdown helper thread in CI."""
+	threads_before = frozenset(threading.enumerate())
+	tasks_before = asyncio.all_tasks(event_loop)
+	yield
+
+	event_loop.run_until_complete(event_loop.shutdown_default_executor())
+
+	if len(ha_test_plugins.INSTANCES) >= 2:
+		count = len(ha_test_plugins.INSTANCES)
+		for inst in ha_test_plugins.INSTANCES:
+			inst.stop()
+		pytest.exit(f"Detected non stopped instances ({count}), aborting test run")
+
+	tasks = asyncio.all_tasks(event_loop) - tasks_before
+	for task in tasks:
+		if expected_lingering_tasks:
+			ha_test_plugins._LOGGER.warning("Lingering task after test %r", task)
+		else:
+			pytest.fail(f"Lingering task after test {task!r}")
+		task.cancel()
+	if tasks:
+		event_loop.run_until_complete(asyncio.wait(tasks))
+
+	for handle in event_loop._scheduled:
+		if handle.cancelled():
+			continue
+		with ha_test_plugins.long_repr_strings():
+			if expected_lingering_timers:
+				ha_test_plugins._LOGGER.warning("Lingering timer after test %r", handle)
+			elif handle._args and isinstance(job := handle._args[-1], HassJob):
+				if job.cancel_on_shutdown:
+					continue
+				pytest.fail(f"Lingering timer after job {job!r}")
+			else:
+				pytest.fail(f"Lingering timer after test {handle!r}")
+			handle.cancel()
+
+	threads = frozenset(threading.enumerate()) - threads_before
+	for thread in threads:
+		assert (
+			isinstance(thread, threading._DummyThread)
+			or thread.name.startswith("waitpid-")
+			or "_run_safe_shutdown_loop" in thread.name
+		)
 
 
 @pytest.fixture
