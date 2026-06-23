@@ -11,7 +11,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.target_commitish }}
           fetch-depth: 0
@@ -78,7 +78,7 @@ jobs:
           unzip -l familylink.zip
 
       - name: Upload ZIP to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: familylink.zip
         env:
