@@ -27,6 +27,8 @@ services:
       # auto-generated on first start in ./data/api_key. The HA integration
       # must use: http://<host>:8099?api_key=<key>
       # - API_KEY=change-me
+      # Not recommended: allow /api/cookies without a key if key creation fails.
+      # - ALLOW_INSECURE_COOKIE_API=1
     dns:
       - 8.8.8.8
       - 8.8.4.4
