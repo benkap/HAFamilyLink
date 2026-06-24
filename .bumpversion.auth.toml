@@ -1,0 +1,31 @@
+[tool.bumpversion]
+current_version = "1.7.1"
+parse = """(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"""
+serialize = ["{major}.{minor}.{patch}"]
+commit = false
+tag = false
+
+[[tool.bumpversion.files]]
+filename = "familylink-playwright/config.json"
+search = '"version": "{current_version}"'
+replace = '"version": "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "familylink-playwright/app/__init__.py"
+search = '__version__ = "{current_version}"'
+replace = '__version__ = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "familylink-playwright/Dockerfile"
+search = 'io.hass.version="{current_version}"'
+replace = 'io.hass.version="{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "familylink-playwright/Dockerfile.standalone"
+search = 'org.opencontainers.image.version="{current_version}"'
+replace = 'org.opencontainers.image.version="{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "familylink-playwright/README.md"
+search = "badge/version-{current_version}-blue"
+replace = "badge/version-{new_version}-blue"

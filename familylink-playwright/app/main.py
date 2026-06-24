@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
+from app import __version__
 from app.auth.browser import BrowserAuthManager
 from app.storage.file_storage import SharedStorage
 from app.config import get_config
@@ -30,7 +31,7 @@ _LOGGER = logging.getLogger(__name__)
 app = FastAPI(
     title="Google Family Link Auth Service",
     description="Authentication service for Google Family Link integration",
-    version="1.0.0"
+    version=__version__
 )
 
 # CORS configuration — restrict to local HA origins
@@ -122,7 +123,7 @@ def _verify_cookie_api_key(request: Request):
 async def startup_event():
     """Initialize services on startup."""
     global browser_manager
-    _LOGGER.info("Starting Family Link Auth Service v1.6.0")
+    _LOGGER.info("Starting Family Link Auth Service v%s", __version__)
     _LOGGER.info(f"Configuration: log_level={config.log_level}, auth_timeout={config.auth_timeout}s")
 
     try:
@@ -502,7 +503,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "familylink-auth",
-        "version": "1.0.0"
+        "version": __version__
     }
 
 
