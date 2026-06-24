@@ -1501,14 +1501,8 @@ class FamilyLinkClient:
 											end_time = item[4] if len(item) > 4 else None
 
 											parse_as_bedtime = is_caeq or (is_uuid and device_info["bedtime_window"] is None)
-											parse_as_schooltime = is_camq or (is_uuid and not parse_as_bedtime)
-
-											if parse_as_bedtime:
-												window_type = "bedtime"
-											elif parse_as_schooltime:
-												window_type = "schooltime"
-											else:
-												window_type = "unknown"
+											parse_as_schooltime = not parse_as_bedtime
+											window_type = "bedtime" if parse_as_bedtime else "schooltime"
 
 											_LOGGER.debug(
 												f"Device {device_id}: {first_elem} is {window_type} window (8 elements) - "
