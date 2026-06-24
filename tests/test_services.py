@@ -1,10 +1,13 @@
 """Tests for Family Link service schemas and dispatch."""
 from __future__ import annotations
 
+from unittest.mock import call
+
 import pytest
 import voluptuous as vol
 
 from custom_components.familylink import (
+	SCHEMA_SET_APP_DAILY_LIMIT,
 	SCHEMA_SET_BEDTIME_SCHEDULE,
 	async_setup_services,
 	extract_ids_from_entity,
@@ -56,6 +59,19 @@ def test_schema_keeps_numeric_looking_child_id_as_string():
 	)
 
 	assert result["child_id"] == "001002003"
+
+
+def test_app_daily_limit_schema_accepts_unlimited_sentinel():
+	"""App limits support the Family Link unlimited-time sentinel."""
+	result = SCHEMA_SET_APP_DAILY_LIMIT(
+		{"package_name": "com.example.app", "minutes": "-2"}
+	)
+
+	assert result["minutes"] == -2
+	with pytest.raises(vol.Invalid):
+		SCHEMA_SET_APP_DAILY_LIMIT(
+			{"package_name": "com.example.app", "minutes": -3}
+		)
 
 
 async def test_schedule_service_dispatch_keeps_child_id_string(
@@ -162,6 +178,79 @@ async def test_app_services_apply_to_all_children_when_no_target_is_provided(
 	harness_coordinator.async_request_refresh.assert_awaited_once()
 
 
+@pytest.mark.parametrize(
+	("service", "client_method"),
+	[
+		(SERVICE_BLOCK_APP, "async_block_app"),
+		(SERVICE_UNBLOCK_APP, "async_unblock_app"),
+	],
+)
+async def test_app_services_refresh_after_partial_all_child_failure(
+	services_hass, harness_coordinator, service, client_method
+):
+	"""One failed child write does not prevent the all-children fan-out refresh."""
+	harness_coordinator.client.async_get_all_supervised_children.return_value = [
+		{"id": "child-1", "name": "One"},
+		{"id": "child-2", "name": "Two"},
+		{"id": "child-3", "name": "Three"},
+	]
+	client_call = getattr(harness_coordinator.client, client_method)
+	client_call.side_effect = [True, False, True]
+
+	await services_hass.services.async_call(
+		DOMAIN,
+		service,
+		{"package_name": "com.example.app"},
+		blocking=True,
+	)
+
+	client_call.assert_has_awaits(
+		[
+			call("com.example.app", account_id="child-1"),
+			call("com.example.app", account_id="child-2"),
+			call("com.example.app", account_id="child-3"),
+		]
+	)
+	harness_coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+	("service", "client_method"),
+	[
+		(SERVICE_BLOCK_APP, "async_block_app"),
+		(SERVICE_UNBLOCK_APP, "async_unblock_app"),
+	],
+)
+async def test_app_services_bubble_all_child_exceptions_without_refresh(
+	services_hass, harness_coordinator, service, client_method
+):
+	"""All-children app writes stop and bubble if a child request raises."""
+	harness_coordinator.client.async_get_all_supervised_children.return_value = [
+		{"id": "child-1", "name": "One"},
+		{"id": "child-2", "name": "Two"},
+		{"id": "child-3", "name": "Three"},
+	]
+	client_call = getattr(harness_coordinator.client, client_method)
+	client_call.side_effect = [True, FamilyLinkException("write failed")]
+
+	with pytest.raises(FamilyLinkException, match="write failed"):
+		await services_hass.services.async_call(
+			DOMAIN,
+			service,
+			{"package_name": "com.example.app"},
+			blocking=True,
+		)
+
+	client_call.assert_has_awaits(
+		[
+			call("com.example.app", account_id="child-1"),
+			call("com.example.app", account_id="child-2"),
+		]
+	)
+	assert client_call.await_count == 2
+	harness_coordinator.async_request_refresh.assert_not_awaited()
+
+
 async def test_set_app_daily_limit_uses_entity_child_fallback(
 	services_hass, harness_coordinator
 ):
@@ -225,22 +314,132 @@ async def test_child_time_limit_services_use_entity_child_fallback(
 	harness_coordinator.async_request_refresh.assert_awaited_once()
 
 
+@pytest.mark.parametrize(
+	("service", "client_method"),
+	[
+		(SERVICE_ENABLE_BEDTIME, "async_enable_bedtime"),
+		(SERVICE_DISABLE_BEDTIME, "async_disable_bedtime"),
+		(SERVICE_ENABLE_SCHOOL_TIME, "async_enable_school_time"),
+		(SERVICE_DISABLE_SCHOOL_TIME, "async_disable_school_time"),
+		(SERVICE_ENABLE_DAILY_LIMIT, "async_enable_daily_limit"),
+		(SERVICE_DISABLE_DAILY_LIMIT, "async_disable_daily_limit"),
+	],
+)
 async def test_child_time_limit_services_skip_refresh_on_false_result(
-	services_hass, harness_coordinator
+	services_hass, harness_coordinator, service, client_method
 ):
 	"""Child time-limit services refresh only after successful client writes."""
-	harness_coordinator.client.async_enable_bedtime.return_value = False
+	client_call = getattr(harness_coordinator.client, client_method)
+	client_call.return_value = False
 
 	await services_hass.services.async_call(
 		DOMAIN,
-		SERVICE_ENABLE_BEDTIME,
+		service,
 		{"child_id": TEST_CHILD_ID},
 		blocking=True,
 	)
 
-	harness_coordinator.client.async_enable_bedtime.assert_awaited_once_with(
-		account_id=TEST_CHILD_ID
+	client_call.assert_awaited_once_with(account_id=TEST_CHILD_ID)
+	harness_coordinator.async_request_refresh.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+	("service", "client_method", "payload", "expected_kwargs"),
+	[
+		(
+			SERVICE_ADD_TIME_BONUS,
+			"async_add_time_bonus",
+			{
+				"bonus_minutes": 15,
+				"device_id": TEST_DEVICE_ID,
+				"child_id": TEST_CHILD_ID,
+			},
+			{
+				"bonus_minutes": 15,
+				"device_id": TEST_DEVICE_ID,
+				"account_id": TEST_CHILD_ID,
+			},
+		),
+		(
+			SERVICE_SET_DAILY_LIMIT,
+			"async_set_daily_limit",
+			{
+				"daily_minutes": 90,
+				"device_id": TEST_DEVICE_ID,
+				"child_id": TEST_CHILD_ID,
+			},
+			{
+				"daily_minutes": 90,
+				"device_id": TEST_DEVICE_ID,
+				"account_id": TEST_CHILD_ID,
+			},
+		),
+		(
+			SERVICE_SET_BEDTIME,
+			"async_set_bedtime",
+			{
+				"start_time": "21:00",
+				"end_time": "06:30",
+				"child_id": TEST_CHILD_ID,
+			},
+			{
+				"start_time": "21:00",
+				"end_time": "06:30",
+				"day": None,
+				"account_id": TEST_CHILD_ID,
+			},
+		),
+		(
+			SERVICE_SET_DAILY_LIMIT_SCHEDULE,
+			"async_set_daily_limit_schedule",
+			{"day": 3, "enabled": False, "child_id": TEST_CHILD_ID},
+			{
+				"day": 3,
+				"daily_minutes": None,
+				"enabled": False,
+				"account_id": TEST_CHILD_ID,
+			},
+		),
+	],
+)
+async def test_guarded_write_services_skip_refresh_on_false_result(
+	services_hass, harness_coordinator, service, client_method, payload, expected_kwargs
+):
+	"""Write services with success guards skip refresh on a false client result."""
+	client_call = getattr(harness_coordinator.client, client_method)
+	client_call.return_value = False
+
+	await services_hass.services.async_call(
+		DOMAIN,
+		service,
+		payload,
+		blocking=True,
 	)
+
+	client_call.assert_awaited_once_with(**expected_kwargs)
+	harness_coordinator.async_request_refresh.assert_not_awaited()
+
+
+async def test_guarded_write_service_exception_bubbles_without_refresh(
+	services_hass, harness_coordinator
+):
+	"""Generic write exceptions bubble and do not trigger a coordinator refresh."""
+	harness_coordinator.client.async_set_bedtime.side_effect = FamilyLinkException(
+		"service down"
+	)
+
+	with pytest.raises(FamilyLinkException, match="service down"):
+		await services_hass.services.async_call(
+			DOMAIN,
+			SERVICE_SET_BEDTIME,
+			{
+				"start_time": "21:00",
+				"end_time": "06:30",
+				"child_id": TEST_CHILD_ID,
+			},
+			blocking=True,
+		)
+
 	harness_coordinator.async_request_refresh.assert_not_awaited()
 
 
@@ -286,6 +485,36 @@ async def test_device_limit_services_require_or_extract_device_id(
 		account_id=TEST_CHILD_ID,
 	)
 	assert harness_coordinator.async_request_refresh.await_count == 2
+
+
+async def test_device_service_explicit_ids_override_entity_fallback(
+	services_hass, harness_coordinator
+):
+	"""Explicit device and child IDs win over entity fallback attributes."""
+	services_hass.states.async_set(
+		"switch.pixel_tablet",
+		"on",
+		{"child_id": "entity-child", "device_id": "entity-device"},
+	)
+
+	await services_hass.services.async_call(
+		DOMAIN,
+		SERVICE_ADD_TIME_BONUS,
+		{
+			"entity_id": "switch.pixel_tablet",
+			"device_id": TEST_DEVICE_ID,
+			"child_id": TEST_CHILD_ID,
+			"bonus_minutes": 20,
+		},
+		blocking=True,
+	)
+
+	harness_coordinator.client.async_add_time_bonus.assert_awaited_once_with(
+		bonus_minutes=20,
+		device_id=TEST_DEVICE_ID,
+		account_id=TEST_CHILD_ID,
+	)
+	harness_coordinator.async_request_refresh.assert_awaited_once()
 
 
 async def test_set_bedtime_service_passes_day_child_and_window(
@@ -366,10 +595,14 @@ async def test_schedule_services_reject_incomplete_or_empty_updates(
 async def test_refresh_location_targets_all_children_when_no_child_is_provided(
 	services_hass, harness_coordinator
 ):
-	"""Location refresh fans out to all supervised children when untargeted."""
+	"""Location refresh fans out even when one child has no location data."""
 	harness_coordinator.client.async_get_all_supervised_children.return_value = [
 		{"id": "child-1", "name": "One"},
 		{"id": "child-2", "name": "Two"},
+	]
+	harness_coordinator.client.async_get_location.side_effect = [
+		{"latitude": 32.0853, "longitude": 34.7818},
+		None,
 	]
 
 	await services_hass.services.async_call(
@@ -388,6 +621,50 @@ async def test_refresh_location_targets_all_children_when_no_child_is_provided(
 		"refresh": True,
 	}
 	harness_coordinator.async_request_refresh.assert_awaited_once()
+
+
+async def test_refresh_location_targets_child_from_entity_fallback(
+	services_hass, harness_coordinator
+):
+	"""Location refresh can target one child through entity attributes."""
+	services_hass.states.async_set(
+		"sensor.alex_location",
+		"home",
+		{"child_id": TEST_CHILD_ID},
+	)
+
+	await services_hass.services.async_call(
+		DOMAIN,
+		SERVICE_REFRESH_LOCATION,
+		{"entity_id": "sensor.alex_location"},
+		blocking=True,
+	)
+
+	harness_coordinator.client.async_get_all_supervised_children.assert_not_awaited()
+	harness_coordinator.client.async_get_location.assert_awaited_once_with(
+		account_id=TEST_CHILD_ID,
+		refresh=True,
+	)
+	harness_coordinator.async_request_refresh.assert_awaited_once()
+
+
+async def test_refresh_location_exception_bubbles_without_refresh(
+	services_hass, harness_coordinator
+):
+	"""Location refresh exceptions bubble and skip the coordinator refresh."""
+	harness_coordinator.client.async_get_location.side_effect = FamilyLinkException(
+		"location unavailable"
+	)
+
+	with pytest.raises(FamilyLinkException, match="location unavailable"):
+		await services_hass.services.async_call(
+			DOMAIN,
+			SERVICE_REFRESH_LOCATION,
+			{"child_id": TEST_CHILD_ID},
+			blocking=True,
+		)
+
+	harness_coordinator.async_request_refresh.assert_not_awaited()
 
 
 def test_removed_or_unsupported_services_are_not_registered(services_hass):
