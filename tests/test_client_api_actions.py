@@ -491,6 +491,138 @@ async def test_daily_limit_toggle_posts_time_limit_update(
 	]
 
 
+@pytest.mark.parametrize(
+	("method_name", "args"),
+	[
+		("async_enable_daily_limit", ("child-1",)),
+		("async_disable_daily_limit", ("child-1",)),
+		("async_set_daily_limit", (90, "device-1", "child-1")),
+		("async_set_bedtime", ("21:15", "06:30", 1, "child-1")),
+	],
+)
+async def test_time_limit_write_actions_require_authentication(
+	hass, method_name, args
+):
+	"""Time limit write actions reject unauthenticated calls."""
+	client = FamilyLinkClient(hass, {CONF_SCHEDULE_TIMEZONE: "UTC"})
+
+	with pytest.raises(AuthenticationError, match="Not authenticated"):
+		await getattr(client, method_name)(*args)
+
+
+@pytest.mark.parametrize(
+	("method_name", "args", "expected_method", "expected_url"),
+	[
+		(
+			"async_enable_daily_limit",
+			(),
+			"PUT",
+			f"{FamilyLinkClient.BASE_URL}/people/child-1/timeLimit:update",
+		),
+		(
+			"async_disable_daily_limit",
+			(),
+			"PUT",
+			f"{FamilyLinkClient.BASE_URL}/people/child-1/timeLimit:update",
+		),
+		(
+			"async_set_daily_limit",
+			(90, "device-1"),
+			"POST",
+			f"{FamilyLinkClient.BASE_URL}/people/child-1/timeLimitOverrides:batchCreate",
+		),
+		(
+			"async_set_bedtime",
+			("21:15", "06:30", 1),
+			"POST",
+			f"{FamilyLinkClient.BASE_URL}/people/child-1/timeLimitOverrides:batchCreate",
+		),
+	],
+)
+async def test_time_limit_write_actions_use_first_child_when_not_provided(
+	hass, method_name, args, expected_method, expected_url
+):
+	"""Time limit write actions resolve the first supervised child when needed."""
+	client = _authenticated_client(hass)
+	client.schedule_today = lambda account_id: 1
+	client.async_get_supervised_child_id = AsyncMock(return_value="child-1")
+	session = _action_session(client)
+
+	assert await getattr(client, method_name)(*args) is True
+
+	client.async_get_supervised_child_id.assert_awaited_once()
+	assert session.calls[0]["method"] == expected_method
+	assert session.calls[0]["url"] == expected_url
+	assert json.loads(session.calls[0]["data"])[1] == "child-1"
+
+
+@pytest.mark.parametrize(
+	("method_name", "args"),
+	[
+		("async_enable_daily_limit", ("child-1",)),
+		("async_disable_daily_limit", ("child-1",)),
+		("async_set_daily_limit", (90, "device-1", "child-1")),
+		("async_set_bedtime", ("21:15", "06:30", 1, "child-1")),
+	],
+)
+async def test_time_limit_write_actions_return_false_on_http_failure(
+	hass, method_name, args
+):
+	"""Time limit write actions return False for non-200 responses."""
+	client = _authenticated_client(hass)
+	client.schedule_today = lambda account_id: 1
+	session = _action_session(client, FakeResponse(status=500))
+
+	assert await getattr(client, method_name)(*args) is False
+	assert len(session.calls) == 1
+
+
+@pytest.mark.parametrize(
+	("method_name", "args"),
+	[
+		("async_enable_daily_limit", ("child-1",)),
+		("async_disable_daily_limit", ("child-1",)),
+		("async_set_daily_limit", (90, "device-1", "child-1")),
+		("async_set_bedtime", ("21:15", "06:30", 1, "child-1")),
+	],
+)
+async def test_time_limit_write_actions_return_false_when_session_fails(
+	hass, method_name, args
+):
+	"""Time limit write actions return False when a session cannot be created."""
+	client = _authenticated_client(hass)
+	client.schedule_today = lambda account_id: 1
+	client._get_session = AsyncMock(side_effect=RuntimeError("offline"))
+
+	assert await getattr(client, method_name)(*args) is False
+
+
+@pytest.mark.parametrize(
+	("method_name", "args", "write_method"),
+	[
+		("async_enable_daily_limit", ("child-1",), "put"),
+		("async_disable_daily_limit", ("child-1",), "put"),
+		("async_set_daily_limit", (90, "device-1", "child-1"), "post"),
+		("async_set_bedtime", ("21:15", "06:30", 1, "child-1"), "post"),
+	],
+)
+async def test_time_limit_write_actions_return_false_when_write_fails(
+	hass, method_name, args, write_method
+):
+	"""Time limit write actions return False when the HTTP write raises."""
+	client = _authenticated_client(hass)
+	client.schedule_today = lambda account_id: 1
+	session = _action_session(client)
+
+	def fail_write(*_args, **_kwargs):
+		raise RuntimeError("write failed")
+
+	setattr(session, write_method, fail_write)
+
+	assert await getattr(client, method_name)(*args) is False
+	assert session.calls == []
+
+
 async def test_set_daily_limit_posts_today_override(hass):
 	"""Setting today's daily limit posts a type-8 override for today's day code."""
 	client = _authenticated_client(hass)
@@ -507,6 +639,26 @@ async def test_set_daily_limit_posts_today_override(hass):
 	assert payload[2][0][2] == 8
 	assert payload[2][0][3] == "device-1"
 	assert payload[2][0][11] == [2, 90, "CAEQAQ"]
+
+
+async def test_set_daily_limit_returns_false_for_invalid_day_without_posting(hass):
+	"""Invalid schedule days return False before posting a daily limit override."""
+	client = _authenticated_client(hass)
+	client.schedule_today = lambda account_id: 8
+	session = _action_session(client)
+
+	assert await client.async_set_daily_limit(90, "device-1", "child-1") is False
+	assert session.calls == []
+
+
+async def test_set_daily_limit_returns_false_for_invalid_device_without_posting(hass):
+	"""Unserializable device IDs return False before posting a daily limit override."""
+	client = _authenticated_client(hass)
+	client.schedule_today = lambda account_id: 1
+	session = _action_session(client)
+
+	assert await client.async_set_daily_limit(90, {"device-1"}, "child-1") is False
+	assert session.calls == []
 
 
 async def test_set_bedtime_posts_today_override(hass):
@@ -529,6 +681,8 @@ async def test_set_bedtime_posts_today_override(hass):
 	("start_time", "end_time", "day"),
 	[
 		("bad", "06:30", 1),
+		("21:15", "bad", 1),
+		("21:15", "06", 1),
 		("21:15", "06:30", 8),
 	],
 )
