@@ -1,10 +1,11 @@
 """Tests for the Family Link API client core behavior."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 import hashlib
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import aiohttp
 import pytest
@@ -141,6 +142,54 @@ def test_google_schedule_timezone_is_cached_from_devices_payload(hass):
 	assert configured_client._google_schedule_timezones == {}
 
 
+def test_schedule_timezone_context_falls_back_to_single_google_timezone(hass):
+	"""Schedule timezone lookup uses the only Google timezone when child ID differs."""
+	client = _client(hass, timezone="")
+	client._google_schedule_timezones = {"child-1": "Asia/Jerusalem"}
+
+	assert client._schedule_time_zone_context("child-2")[1:] == (
+		"Asia/Jerusalem",
+		"google",
+	)
+
+
+def test_schedule_timezone_context_ignores_invalid_configured_timezone(hass):
+	"""Invalid configured timezone values fall back to Home Assistant settings."""
+	hass.config.time_zone = "America/New_York"
+	client = _client(hass, timezone="Not/AZone")
+
+	assert client._schedule_time_zone_context("child-1")[1:] == (
+		"America/New_York",
+		"home_assistant",
+	)
+
+
+def test_schedule_today_uses_effective_timezone(monkeypatch, hass):
+	"""schedule_today reads the current date in the effective timezone."""
+	client = _client(hass, timezone="UTC")
+	seen_timezones = []
+
+	def fake_now(time_zone=None):
+		seen_timezones.append(time_zone)
+		return datetime(2026, 6, 24, 12, 0, tzinfo=time_zone)
+
+	monkeypatch.setattr("custom_components.familylink.client.api.dt_util.now", fake_now)
+
+	assert client.schedule_today("child-1") == 3
+	assert seen_timezones[0] is not None
+
+
+def test_cookie_dict_keeps_existing_higher_priority_cookie(hass):
+	"""Cookie handling keeps an existing higher-priority duplicate cookie."""
+	client = _client(hass)
+	client._cookies = [
+		{"name": "SAPISID", "value": "preferred", "domain": ".example.test"},
+		{"name": "SAPISID", "value": "regional", "domain": ".google.com.au"},
+	]
+
+	assert client._get_cookies_dict() == {"SAPISID": "preferred"}
+
+
 async def test_authenticate_loads_cookies_from_addon(hass):
 	"""Authentication stores cookies returned by the add-on client."""
 	client = _client(hass)
@@ -237,6 +286,63 @@ async def test_get_session_requires_sapisid_cookie(hass):
 
 	with pytest.raises(AuthenticationError, match="SAPISID cookie not found"):
 		await client._get_session()
+
+
+async def test_get_session_recreates_stale_session(monkeypatch, hass):
+	"""Session creation closes and replaces stale SAPISIDHASH sessions."""
+	created_sessions = []
+
+	class FakeSession:
+		def __init__(self, *, headers, timeout):
+			self.headers = headers
+			self.timeout = timeout
+			self.close = AsyncMock()
+			created_sessions.append(self)
+
+	monkeypatch.setattr(
+		"custom_components.familylink.client.api.aiohttp.ClientSession",
+		FakeSession,
+	)
+	monkeypatch.setattr(
+		"custom_components.familylink.client.api.time.time",
+		lambda: FamilyLinkClient.SESSION_MAX_AGE + 10,
+	)
+	old_session = SimpleNamespace(close=AsyncMock())
+	client = _authenticated_client(hass)
+	client._session = old_session
+	client._session_created_at = 0
+
+	session = await client._get_session()
+
+	old_session.close.assert_awaited_once()
+	assert session is created_sessions[0]
+	assert client._session is session
+	assert client._session_created_at == FamilyLinkClient.SESSION_MAX_AGE + 10
+
+
+async def test_get_session_rejects_sapisid_from_non_google_domain(hass):
+	"""SAPISID cookies from unrelated domains are ignored for session auth."""
+	client = _client(hass)
+	client._cookies = [
+		{"name": "SAPISID", "value": "cookie", "domain": ".example.test"},
+	]
+
+	with pytest.raises(AuthenticationError, match="SAPISID cookie not found"):
+		await client._get_session()
+
+
+async def test_get_session_surfaces_lock_timeout(hass):
+	"""Session acquisition timeout is surfaced to callers."""
+	client = _authenticated_client(hass)
+	client._session_lock = SimpleNamespace(
+		acquire=AsyncMock(side_effect=asyncio.TimeoutError),
+		release=Mock(),
+	)
+
+	with pytest.raises(asyncio.TimeoutError):
+		await client._get_session()
+
+	client._session_lock.release.assert_not_called()
 
 
 async def test_supervised_child_helpers_parse_family_members(hass):
