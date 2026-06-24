@@ -270,6 +270,54 @@ async def test_time_limit_returns_empty_result_for_malformed_payload(hass):
 	assert await client.async_get_time_limit("child-1") == _empty_time_limit_result()
 
 
+@pytest.mark.parametrize(
+	"payload",
+	[
+		[["metadata"], []],
+		[["metadata"], [[], [], [], None, [], []]],
+		[
+			["metadata"],
+			[
+				[2],
+				[[2, [6, 0], []]],
+				["ignore"],
+				None,
+				[1],
+				[["too-short"], ["not-a-uuid", 1, 2, [123, 0]]],
+			],
+		],
+	],
+)
+async def test_time_limit_returns_default_structure_for_sparse_payloads(
+	hass, monkeypatch, payload
+):
+	"""Sparse successful payloads return defaults without crashing."""
+	monkeypatch.setattr(
+		api.dt_util,
+		"now",
+		lambda time_zone=None: datetime(2026, 6, 22, 12, 0, tzinfo=time_zone),
+	)
+	client = _authenticated_client(hass)
+	_get_session(client, FakeResponse(payload=payload))
+
+	assert await client.async_get_time_limit("child-1") == {
+		"bedtime_enabled": False,
+		"school_time_enabled": False,
+		"bedtime_enabled_today": False,
+		"bedtime_today_source": "weekly",
+		"bedtime_today_override_action": None,
+		"schedule_today": 1,
+		"schedule_timezone": "UTC",
+		"schedule_timezone_source": "config",
+		"google_schedule_timezone": None,
+		"bedtime_schedule": [],
+		"school_time_schedule": [],
+		"daily_limit_schedule": [],
+		"bedtime_rule_id": None,
+		"schooltime_rule_id": None,
+	}
+
+
 async def test_time_limit_wraps_unexpected_errors_as_network_error(hass):
 	"""Unexpected response parsing errors are wrapped for callers."""
 	client = _authenticated_client(hass)
