@@ -2,11 +2,17 @@ name: Build and Push Docker Image
 
 on:
   pull_request:
+    paths:
+      - "familylink-playwright/**"
+      - ".github/workflows/build-docker-image.yml"
   push:
     branches:
       - main
     tags:
       - 'v*'
+    paths:
+      - "familylink-playwright/**"
+      - ".github/workflows/build-docker-image.yml"
   release:
     types: [published]
   workflow_dispatch:
@@ -14,6 +20,10 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/familylink-auth
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-push:
