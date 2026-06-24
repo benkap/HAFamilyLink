@@ -4,9 +4,11 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.familylink import binary_sensor, button, device_tracker, sensor, switch
 from custom_components.familylink.const import (
+	CONF_ENABLE_LOCATION_TRACKING,
 	DEVICE_LOCK_ACTION,
 	DEVICE_UNLOCK_ACTION,
 	DOMAIN,
@@ -36,6 +38,19 @@ def _sensor_by_unique_id(entities, unique_id):
 	return _entity_by_unique_id(entities, unique_id)
 
 
+def _disabled_location_entry(mock_config_entry):
+	return MockConfigEntry(
+		domain=DOMAIN,
+		title=mock_config_entry.title,
+		data={
+			**mock_config_entry.data,
+			CONF_ENABLE_LOCATION_TRACKING: False,
+		},
+		entry_id=f"{mock_config_entry.entry_id}-disabled-location",
+		unique_id=f"{mock_config_entry.unique_id}-disabled-location",
+	)
+
+
 def _patch_pending_time_limit_state(coordinator):
 	"""Patch pending-state helpers onto a lightweight coordinator."""
 	pending_states = {}
@@ -52,6 +67,183 @@ def _patch_pending_time_limit_state(coordinator):
 	coordinator.get_pending_time_limit_state = get_pending_time_limit_state
 	coordinator.set_pending_time_limit_state = set_pending_time_limit_state
 	return pending_states
+
+
+@pytest.mark.parametrize(
+	"platform",
+	[sensor, switch, binary_sensor, button, device_tracker],
+	ids=["sensor", "switch", "binary_sensor", "button", "device_tracker"],
+)
+@pytest.mark.parametrize(
+	"coordinator_data",
+	[None, {}, {"children_data": []}],
+	ids=["none", "empty", "empty-children"],
+)
+async def test_platform_setup_skips_missing_children_data(
+	hass, mock_config_entry, harness_coordinator, platform, coordinator_data
+):
+	"""Platform setup creates no entities when coordinator children data is missing."""
+	harness_coordinator.data = coordinator_data
+
+	entities = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, platform
+	)
+
+	assert entities == []
+
+
+async def test_location_tracking_disabled_skips_tracker_and_battery_sensor(
+	hass, mock_config_entry, harness_coordinator
+):
+	"""Location-only entities are not created when location tracking is disabled."""
+	disabled_entry = _disabled_location_entry(mock_config_entry)
+
+	trackers = await _entities_for_platform(
+		hass, disabled_entry, harness_coordinator, device_tracker
+	)
+	sensors = await _entities_for_platform(
+		hass, disabled_entry, harness_coordinator, sensor
+	)
+
+	assert trackers == []
+	assert sensors
+	assert not any(
+		entity.unique_id == f"{DOMAIN}_{TEST_CHILD_ID}_battery_level"
+		for entity in sensors
+	)
+
+
+async def test_entities_keep_identity_when_updates_are_unavailable(
+	hass, mock_config_entry, harness_coordinator
+):
+	"""Representative entities keep stable identity while reporting unavailable."""
+	sensors = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, sensor
+	)
+	switches = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, switch
+	)
+	binary_sensors = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, binary_sensor
+	)
+	buttons = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, button
+	)
+	trackers = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, device_tracker
+	)
+	entities = [
+		(
+			_entity_by_unique_id(sensors, f"{DOMAIN}_{TEST_CHILD_ID}_app_count"),
+			f"{DOMAIN}_{TEST_CHILD_ID}_app_count",
+			(DOMAIN, TEST_CHILD_ID),
+		),
+		(
+			_entity_by_unique_id(switches, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}"),
+			f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}",
+			(DOMAIN, f"{TEST_CHILD_ID}_{TEST_DEVICE_ID}"),
+		),
+		(
+			_entity_by_unique_id(
+				binary_sensors,
+				f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_bedtime_active",
+			),
+			f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_bedtime_active",
+			(DOMAIN, f"{TEST_CHILD_ID}_{TEST_DEVICE_ID}"),
+		),
+		(
+			_entity_by_unique_id(
+				buttons,
+				f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_bonus_15min",
+			),
+			f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_bonus_15min",
+			(DOMAIN, f"{TEST_CHILD_ID}_{TEST_DEVICE_ID}"),
+		),
+		(
+			_entity_by_unique_id(trackers, f"{DOMAIN}_{TEST_CHILD_ID}_location"),
+			f"{DOMAIN}_{TEST_CHILD_ID}_location",
+			(DOMAIN, TEST_CHILD_ID),
+		),
+	]
+
+	harness_coordinator.last_update_success = False
+
+	for entity, unique_id, identifier in entities:
+		assert entity.unique_id == unique_id
+		assert identifier in entity.device_info["identifiers"]
+		assert entity.available is False
+
+
+async def test_entities_handle_partial_child_data_without_crashing(
+	hass, mock_config_entry, harness_coordinator
+):
+	"""Missing optional child payload sections fall back to empty values."""
+	sensors = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, sensor
+	)
+	switches = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, switch
+	)
+	binary_sensors = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, binary_sensor
+	)
+	buttons = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, button
+	)
+	trackers = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, device_tracker
+	)
+	child_data = harness_coordinator.data["children_data"][0]
+	for key in ("apps", "screen_time", "devices_time_data", "location", "child"):
+		child_data.pop(key)
+
+	app_count = _sensor_by_unique_id(sensors, f"{DOMAIN}_{TEST_CHILD_ID}_app_count")
+	screen_time = _sensor_by_unique_id(
+		sensors, f"{DOMAIN}_{TEST_CHILD_ID}_screen_time_total"
+	)
+	battery = _sensor_by_unique_id(sensors, f"{DOMAIN}_{TEST_CHILD_ID}_battery_level")
+	remaining = _sensor_by_unique_id(
+		sensors, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_screen_time_remaining"
+	)
+	device_switch = _entity_by_unique_id(
+		switches, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}"
+	)
+	bedtime = _entity_by_unique_id(
+		binary_sensors, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_bedtime_active"
+	)
+	cancel_bonus = _entity_by_unique_id(
+		buttons, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_reset_bonus"
+	)
+	tracker = _entity_by_unique_id(trackers, f"{DOMAIN}_{TEST_CHILD_ID}_location")
+
+	assert app_count.native_value is None
+	assert app_count.available is False
+	assert app_count.extra_state_attributes == {}
+	assert screen_time.native_value is None
+	assert screen_time.available is False
+	assert screen_time.extra_state_attributes == {}
+	assert battery.native_value is None
+	assert battery.available is False
+	assert battery.extra_state_attributes == {}
+
+	assert remaining.native_value is None
+	assert remaining.extra_state_attributes == {
+		"child_id": TEST_CHILD_ID,
+		"child_name": "Alex",
+		"device_id": TEST_DEVICE_ID,
+		"device_name": "Pixel Tablet",
+	}
+	assert device_switch.is_on is True
+	assert device_switch.extra_state_attributes["device_id"] == TEST_DEVICE_ID
+	assert bedtime.is_on is False
+	assert bedtime.available is False
+	assert bedtime.extra_state_attributes == {}
+	assert cancel_bonus.available is False
+	assert tracker.latitude is None
+	assert tracker.longitude is None
+	assert tracker.location_accuracy == 0
+	assert tracker.extra_state_attributes == {}
+	assert tracker.available is True
 
 
 async def test_sensor_entities_include_unique_ids_device_info_and_attributes(
