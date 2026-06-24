@@ -15,13 +15,19 @@ from custom_components.familylink.exceptions import FamilyLinkException, Session
 
 from conftest import TEST_CHILD_ID, TEST_DEVICE_ID
 
+OTHER_CHILD_ID = "100200301"
+OTHER_DEVICE_ID = "device-2"
 
-def _supervised_child() -> dict[str, object]:
+
+def _supervised_child(
+	child_id: str = TEST_CHILD_ID,
+	child_name: str = "Alex",
+) -> dict[str, object]:
 	"""Return one supervised family member."""
 	return {
-		"userId": TEST_CHILD_ID,
+		"userId": child_id,
 		"memberSupervisionInfo": {"isSupervisedMember": True},
-		"profile": {"displayName": "Alex"},
+		"profile": {"displayName": child_name},
 	}
 
 
@@ -200,6 +206,164 @@ async def test_fetch_data_restores_cached_child_data_when_child_calls_fail(
 	assert child["daily_limit_enabled"] is True
 
 
+async def test_fetch_data_keeps_successful_child_when_sibling_uses_cached_data(
+	hass, mock_config_entry, sample_coordinator_data
+):
+	"""One child's transient failures do not wipe another child's fresh data."""
+	cached_child = deepcopy(sample_coordinator_data["children_data"][0])
+	cached_child["child"] = _supervised_child(OTHER_CHILD_ID, "Blair")
+	cached_child["child_id"] = OTHER_CHILD_ID
+	cached_child["child_name"] = "Blair"
+	cached_child["devices"][0]["id"] = OTHER_DEVICE_ID
+	cached_child["devices"][0]["child_id"] = OTHER_CHILD_ID
+	cached_child["devices_time_data"] = {
+		OTHER_DEVICE_ID: cached_child["devices_time_data"].pop(TEST_DEVICE_ID)
+	}
+	fresh_client = _client()
+
+	coordinator = _coordinator(hass, mock_config_entry)
+	coordinator._location_tracking_enabled = False
+	coordinator._last_known_data = {"children_data": [cached_child]}
+	coordinator.client = _client(
+		async_get_family_members=AsyncMock(
+			return_value={
+				"members": [
+					_supervised_child(),
+					_supervised_child(OTHER_CHILD_ID, "Blair"),
+				]
+			}
+		),
+		async_get_apps_and_usage=AsyncMock(
+			side_effect=[
+				fresh_client.async_get_apps_and_usage.return_value,
+				RuntimeError("apps down"),
+			]
+		),
+		async_get_time_limit=AsyncMock(
+			side_effect=[
+				fresh_client.async_get_time_limit.return_value,
+				RuntimeError("limits down"),
+			]
+		),
+		async_get_applied_time_limits=AsyncMock(
+			side_effect=[
+				fresh_client.async_get_applied_time_limits.return_value,
+				RuntimeError("applied down"),
+			]
+		),
+		async_get_daily_screen_time=AsyncMock(
+			side_effect=[
+				fresh_client.async_get_daily_screen_time.return_value,
+				RuntimeError("screen down"),
+			]
+		),
+	)
+
+	result = await coordinator._async_fetch_data()
+
+	children = {child["child_id"]: child for child in result["children_data"]}
+
+	assert set(children) == {TEST_CHILD_ID, OTHER_CHILD_ID}
+	assert children[TEST_CHILD_ID]["devices"][0]["locked"] is True
+	assert children[TEST_CHILD_ID]["apps"][0]["title"] == "YouTube"
+	assert children[OTHER_CHILD_ID]["apps"] == cached_child["apps"]
+	assert children[OTHER_CHILD_ID]["devices"][0]["id"] == OTHER_DEVICE_ID
+	assert children[OTHER_CHILD_ID]["devices"][0]["remaining_minutes"] == 60
+	assert (
+		children[OTHER_CHILD_ID]["devices_time_data"][OTHER_DEVICE_ID][
+			"remaining_minutes"
+		]
+		== 60
+	)
+	assert children[OTHER_CHILD_ID]["screen_time"] == cached_child["screen_time"]
+
+
+async def test_fetch_data_aggregates_sparse_device_location_and_usage_payloads(
+	hass, mock_config_entry
+):
+	"""Sparse device/location payloads still produce useful child state."""
+	apps_usage_data = {
+		"apps": [{"title": "Maps", "packageName": "com.google.android.apps.maps"}],
+		"deviceInfo": [
+			{"deviceId": OTHER_DEVICE_ID},
+			{
+				"deviceId": TEST_DEVICE_ID,
+				"displayInfo": {
+					"friendlyName": "Pixel Tablet",
+					"model": "Pixel Tablet",
+				},
+			},
+		],
+		"appUsageSessions": [
+			{"packageName": "com.google.android.apps.maps", "durationMillis": 120000}
+		],
+	}
+	screen_time = {
+		"total_seconds": 120,
+		"formatted": "00:02:00",
+		"hours": 0,
+		"minutes": 2,
+		"seconds": 0,
+		"app_breakdown": {"com.google.android.apps.maps": 120},
+	}
+	coordinator = _coordinator(hass, mock_config_entry)
+	coordinator.client = _client(
+		async_get_apps_and_usage=AsyncMock(return_value=apps_usage_data),
+		async_get_applied_time_limits=AsyncMock(
+			return_value={
+				"device_lock_states": {TEST_DEVICE_ID: True},
+				"devices": {
+					TEST_DEVICE_ID: {
+						"remaining_minutes": 10,
+						"total_allowed_minutes": 60,
+						"used_minutes": 50,
+						"daily_limit_enabled": True,
+						"daily_limit_minutes": 60,
+						"daily_limit_remaining": 10,
+						"bedtime_active": False,
+						"schooltime_active": False,
+						"bonus_minutes": 0,
+						"bedtime_window_start": "22:00",
+						"bedtime_window_end": "07:00",
+					}
+				},
+				"bedtime_enabled_today": None,
+				"schooltime_enabled_today": None,
+			}
+		),
+		async_get_daily_screen_time=AsyncMock(return_value=screen_time),
+		async_get_location=AsyncMock(
+			return_value={
+				"latitude": 32.1,
+				"longitude": 34.8,
+				"source_device_id": "missing-device",
+			}
+		),
+	)
+
+	result = await coordinator._async_fetch_data()
+
+	child = result["children_data"][0]
+	sparse_device, timed_device = child["devices"]
+
+	assert child["apps"] == apps_usage_data["apps"]
+	assert child["app_usage_sessions"] == apps_usage_data["appUsageSessions"]
+	assert child["screen_time"] == screen_time
+	assert child["daily_limit_enabled"] is True
+	assert child["location"]["source_device_name"] is None
+	assert sparse_device["name"] == "Unknown Device"
+	assert sparse_device["model"] == "Unknown"
+	assert sparse_device["capabilities"] == []
+	assert sparse_device["locked"] is False
+	assert "daily_limit_enabled" not in sparse_device
+	assert timed_device["locked"] is True
+	assert timed_device["remaining_minutes"] == 10
+	coordinator.client.async_get_daily_screen_time.assert_awaited_once_with(
+		account_id=TEST_CHILD_ID,
+		data=apps_usage_data,
+	)
+
+
 async def test_update_data_retries_once_after_session_expiry(
 	hass, mock_config_entry, sample_coordinator_data
 ):
@@ -214,6 +378,41 @@ async def test_update_data_retries_once_after_session_expiry(
 	assert await coordinator._async_update_data() == result
 	coordinator._async_refresh_auth.assert_awaited_once()
 	assert coordinator._last_known_data == result
+	assert coordinator._is_retrying_auth is False
+
+
+async def test_update_data_notifies_when_session_still_expired_after_refresh(
+	hass, mock_config_entry
+):
+	"""A retry that still sees an expired session asks the user to re-authenticate."""
+	coordinator = _coordinator(hass, mock_config_entry)
+	coordinator._async_fetch_data = AsyncMock(
+		side_effect=[
+			SessionExpiredError("expired"),
+			SessionExpiredError("still expired"),
+		]
+	)
+	coordinator._async_refresh_auth = AsyncMock()
+	notification_calls = []
+
+	async def handle_notification(service_call):
+		notification_calls.append(service_call)
+
+	hass.services.async_register(
+		"persistent_notification",
+		"create",
+		handle_notification,
+	)
+
+	with pytest.raises(UpdateFailed, match="Session expired"):
+		await coordinator._async_update_data()
+
+	await hass.async_block_till_done()
+
+	coordinator._async_refresh_auth.assert_awaited_once()
+	assert len(notification_calls) == 1
+	assert notification_calls[0].data["notification_id"] == "familylink_auth_expired"
+	assert coordinator._auth_notification_sent is True
 	assert coordinator._is_retrying_auth is False
 
 
@@ -269,6 +468,23 @@ async def test_control_device_uses_cached_child_id_and_sets_pending_state(
 	assert coordinator._pending_lock_states[TEST_DEVICE_ID][0] is True
 	sleep.assert_awaited_once_with(1)
 	coordinator.async_request_refresh.assert_awaited_once()
+
+
+async def test_fetch_data_removes_expired_pending_lock_state_and_uses_api_state(
+	hass, mock_config_entry, monkeypatch
+):
+	"""Expired optimistic lock state falls back to the latest API lock state."""
+	coordinator = _coordinator(hass, mock_config_entry)
+	coordinator.client = _client()
+	now = 1000.0
+	monkeypatch.setattr("custom_components.familylink.coordinator.time.time", lambda: now)
+	coordinator._pending_lock_states[TEST_DEVICE_ID] = (False, now - 6.0)
+
+	result = await coordinator._async_fetch_data()
+
+	device = result["children_data"][0]["devices"][0]
+	assert device["locked"] is True
+	assert TEST_DEVICE_ID not in coordinator._pending_lock_states
 
 
 def test_pending_time_limit_state_expires(hass, mock_config_entry, monkeypatch):
