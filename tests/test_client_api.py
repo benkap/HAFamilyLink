@@ -59,7 +59,7 @@ class FakeResponse:
 	def raise_for_status(self) -> None:
 		if self.status >= 400:
 			raise aiohttp.ClientResponseError(
-				request_info=None,
+				request_info=SimpleNamespace(real_url="https://example.test/request"),
 				history=(),
 				status=self.status,
 				message="error",
@@ -421,6 +421,25 @@ async def test_get_family_members_raises_session_expired_on_401(hass):
 		await client.async_get_family_members()
 
 
+async def test_get_family_members_requires_authentication(hass):
+	"""Family member requests fail before I/O when cookies are missing."""
+	client = _client(hass)
+
+	with pytest.raises(AuthenticationError, match="Not authenticated"):
+		await client.async_get_family_members()
+
+
+async def test_get_family_members_wraps_http_errors(hass):
+	"""Non-auth HTTP errors from family-member requests become NetworkError."""
+	client = _authenticated_client(hass)
+	client._get_session = AsyncMock(
+		return_value=FakeSession(FakeResponse(status=500, text="server error"))
+	)
+
+	with pytest.raises(NetworkError, match="Failed to fetch family members"):
+		await client.async_get_family_members()
+
+
 async def test_get_apps_and_usage_uses_expected_capability_params(hass):
 	"""Apps and usage calls request both required capabilities."""
 	client = _authenticated_client(hass)
@@ -445,6 +464,45 @@ async def test_get_apps_and_usage_uses_expected_capability_params(hass):
 	]
 
 
+async def test_get_apps_and_usage_requires_authentication(hass):
+	"""Apps and usage requests fail before I/O when cookies are missing."""
+	client = _client(hass)
+
+	with pytest.raises(AuthenticationError, match="Not authenticated"):
+		await client.async_get_apps_and_usage("child-1")
+
+
+async def test_get_apps_and_usage_uses_first_child_when_account_is_missing(hass):
+	"""Apps and usage requests resolve the first supervised child by default."""
+	client = _authenticated_client(hass)
+	payload = {"apps": [], "deviceInfo": [], "appUsageSessions": []}
+	session = FakeSession(FakeResponse(payload=payload))
+	client._get_session = AsyncMock(return_value=session)
+	client.async_get_supervised_child_id = AsyncMock(return_value="child-1")
+
+	assert await client.async_get_apps_and_usage() == payload
+	client.async_get_supervised_child_id.assert_awaited_once()
+	assert session.calls[0]["url"] == (
+		f"{FamilyLinkClient.BASE_URL}/people/child-1/appsandusage"
+	)
+
+
+@pytest.mark.parametrize(
+	("status", "expected_error"),
+	[
+		(401, SessionExpiredError),
+		(500, NetworkError),
+	],
+)
+async def test_get_apps_and_usage_http_failures(hass, status, expected_error):
+	"""Apps and usage requests keep auth failures distinct from other HTTP errors."""
+	client = _authenticated_client(hass)
+	client._get_session = AsyncMock(return_value=FakeSession(FakeResponse(status=status)))
+
+	with pytest.raises(expected_error):
+		await client.async_get_apps_and_usage("child-1")
+
+
 async def test_get_devices_payload_uses_include_unmanaged_devices(hass):
 	"""Device payload requests include unmanaged devices for timezone discovery."""
 	client = _authenticated_client(hass)
@@ -466,6 +524,47 @@ async def test_get_devices_payload_uses_include_unmanaged_devices(hass):
 	]
 
 
+async def test_get_devices_payload_requires_authentication(hass):
+	"""Device payload requests fail before I/O when cookies are missing."""
+	client = _client(hass)
+
+	with pytest.raises(AuthenticationError, match="Not authenticated"):
+		await client.async_get_devices_payload("child-1")
+
+
+async def test_get_devices_payload_uses_first_child_when_account_is_missing(hass):
+	"""Device payload requests resolve the first supervised child by default."""
+	client = _authenticated_client(hass)
+	payload = [None, []]
+	session = FakeSession(FakeResponse(payload=payload))
+	client._get_session = AsyncMock(return_value=session)
+	client.async_get_supervised_child_id = AsyncMock(return_value="child-1")
+
+	assert await client.async_get_devices_payload() == payload
+	client.async_get_supervised_child_id.assert_awaited_once()
+	assert session.calls[0]["url"] == (
+		f"{FamilyLinkClient.BASE_URL}/people/child-1/devices"
+	)
+
+
+@pytest.mark.parametrize(
+	("status", "expected_error"),
+	[
+		(401, SessionExpiredError),
+		(500, NetworkError),
+	],
+)
+async def test_get_devices_payload_http_failures(hass, status, expected_error):
+	"""Device payload requests keep auth failures distinct from other HTTP errors."""
+	client = _authenticated_client(hass)
+	client._get_session = AsyncMock(
+		return_value=FakeSession(FakeResponse(status=status, text="server error"))
+	)
+
+	with pytest.raises(expected_error):
+		await client.async_get_devices_payload("child-1")
+
+
 async def test_update_google_schedule_timezone_marks_child_checked_on_failure(hass):
 	"""Best-effort timezone discovery does not repeatedly retry failed children."""
 	client = _client(hass, timezone="")
@@ -475,6 +574,42 @@ async def test_update_google_schedule_timezone_marks_child_checked_on_failure(ha
 
 	assert client._google_schedule_timezone_checked == {"child-1"}
 	assert client._google_schedule_timezones == {}
+
+
+@pytest.mark.parametrize(
+	("timezone", "cached_timezones", "checked_children"),
+	[
+		("UTC", {}, ()),
+		("", {"child-1": "Asia/Jerusalem"}, ()),
+		("", {}, ("child-1",)),
+	],
+	ids=["configured-timezone", "cached-timezone", "already-checked"],
+)
+async def test_update_google_schedule_timezone_skips_when_unneeded(
+	hass, timezone, cached_timezones, checked_children
+):
+	"""Timezone discovery skips configured, cached, or already checked children."""
+	client = _client(hass, timezone=timezone)
+	client._google_schedule_timezones.update(cached_timezones)
+	client._google_schedule_timezone_checked.update(checked_children)
+	client.async_get_devices_payload = AsyncMock()
+
+	await client.async_update_google_schedule_timezone_from_devices("child-1")
+
+	client.async_get_devices_payload.assert_not_awaited()
+
+
+async def test_update_google_schedule_timezone_caches_devices_timezone(hass):
+	"""Timezone discovery caches the Google timezone from device data."""
+	client = _client(hass, timezone="")
+	devices_payload = [None, [[None] * 11 + [["Asia/Jerusalem"]]]]
+	client.async_get_devices_payload = AsyncMock(return_value=devices_payload)
+
+	await client.async_update_google_schedule_timezone_from_devices("child-1")
+
+	client.async_get_devices_payload.assert_awaited_once_with("child-1")
+	assert client._google_schedule_timezone_checked == {"child-1"}
+	assert client._google_schedule_timezones == {"child-1": "Asia/Jerusalem"}
 
 
 async def test_get_location_parses_location_payload(hass):
@@ -524,6 +659,47 @@ async def test_get_location_parses_location_payload(hass):
 	]
 
 
+async def test_get_location_requires_authentication(hass):
+	"""Location requests fail before I/O when cookies are missing."""
+	client = _client(hass)
+
+	with pytest.raises(AuthenticationError, match="Not authenticated"):
+		await client.async_get_location("child-1")
+
+
+async def test_get_location_uses_first_child_when_account_is_missing(hass):
+	"""Location requests resolve the first supervised child by default."""
+	client = _authenticated_client(hass)
+	session = FakeSession(
+		FakeResponse(
+			payload=[
+				[None, 1710000000000],
+				["child-1", "status", [[32.0853, 34.7818], 1710000000000]],
+			]
+		)
+	)
+	client._get_session = AsyncMock(return_value=session)
+	client.async_get_supervised_child_id = AsyncMock(return_value="child-1")
+
+	result = await client.async_get_location()
+
+	client.async_get_supervised_child_id.assert_awaited_once()
+	assert result is not None
+	assert result["latitude"] == 32.0853
+	assert session.calls[0]["url"] == (
+		f"{FamilyLinkClient.BASE_URL}/families/mine/location/child-1"
+	)
+
+
+async def test_get_location_raises_session_expired_on_401(hass):
+	"""A 401 location response is surfaced as a session-expired error."""
+	client = _authenticated_client(hass)
+	client._get_session = AsyncMock(return_value=FakeSession(FakeResponse(status=401)))
+
+	with pytest.raises(SessionExpiredError, match="Session expired"):
+		await client.async_get_location("child-1")
+
+
 @pytest.mark.parametrize("status", [404, 500])
 async def test_get_location_returns_none_when_unavailable(hass, status):
 	"""Unavailable location responses do not fail coordinator refreshes."""
@@ -531,6 +707,63 @@ async def test_get_location_returns_none_when_unavailable(hass, status):
 	client._get_session = AsyncMock(return_value=FakeSession(FakeResponse(status=status)))
 
 	assert await client.async_get_location("child-1") is None
+
+
+@pytest.mark.parametrize(
+	"payload",
+	[
+		{},
+		[],
+		[None],
+		[None, "bad"],
+		[None, ["child-1"]],
+		[None, ["child-1", "status", "bad"]],
+		[None, ["child-1", "status", [["only-latitude"], 1710000000000]]],
+	],
+)
+async def test_get_location_returns_none_for_malformed_payloads(hass, payload):
+	"""Malformed location payloads are ignored instead of bubbling errors."""
+	client = _authenticated_client(hass)
+	client._get_session = AsyncMock(
+		return_value=FakeSession(FakeResponse(payload=payload))
+	)
+
+	assert await client.async_get_location("child-1") is None
+
+
+async def test_get_location_ignores_invalid_battery_level(hass):
+	"""Location parsing keeps coordinates when battery metadata is malformed."""
+	client = _authenticated_client(hass)
+	client._get_session = AsyncMock(
+		return_value=FakeSession(
+			FakeResponse(
+				payload=[
+					[None, 1710000000000],
+					[
+						"child-1",
+						"status",
+						[
+							[32.0853, 34.7818],
+							1710000000000,
+							25,
+							None,
+							None,
+							None,
+							"device-1",
+							None,
+							["full", "charging"],
+						],
+					],
+				]
+			)
+		)
+	)
+
+	result = await client.async_get_location("child-1")
+
+	assert result is not None
+	assert result["latitude"] == 32.0853
+	assert result["battery_level"] is None
 
 
 async def test_daily_screen_time_aggregates_matching_day_sessions(hass):
@@ -575,6 +808,50 @@ async def test_daily_screen_time_aggregates_matching_day_sessions(hass):
 		"com.video": 1800.5,
 		"com.music": 60.0,
 	}
+
+
+async def test_daily_screen_time_uses_current_date_when_target_missing(
+	monkeypatch, hass
+):
+	"""Daily screen time defaults to today's Home Assistant date."""
+	monkeypatch.setattr(
+		"custom_components.familylink.client.api.dt_util.now",
+		lambda time_zone=None: datetime(2026, 6, 24),
+	)
+	client = _client(hass)
+	client.async_get_apps_and_usage = AsyncMock(
+		return_value={
+			"appUsageSessions": [
+				{
+					"date": {"year": 2026, "month": 6, "day": 24},
+					"usage": "120s",
+					"appId": {"androidAppPackageName": "com.video"},
+				},
+				{
+					"date": {"year": 2026, "month": 6, "day": 23},
+					"usage": "999s",
+					"appId": {"androidAppPackageName": "com.old"},
+				},
+			]
+		}
+	)
+
+	result = await client.async_get_daily_screen_time(account_id="child-1")
+
+	client.async_get_apps_and_usage.assert_awaited_once_with("child-1")
+	assert result["date"] == datetime(2026, 6, 24).date()
+	assert result["total_seconds"] == 120
+
+
+async def test_daily_screen_time_reraises_session_expired(hass):
+	"""Daily screen time preserves session-expired errors for reauth handling."""
+	client = _client(hass)
+	client.async_get_apps_and_usage = AsyncMock(
+		side_effect=SessionExpiredError("expired")
+	)
+
+	with pytest.raises(SessionExpiredError, match="expired"):
+		await client.async_get_daily_screen_time(account_id="child-1")
 
 
 async def test_daily_screen_time_wraps_unexpected_errors(hass):
