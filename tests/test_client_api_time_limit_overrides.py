@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -186,15 +186,43 @@ async def test_disable_bedtime_uses_default_window_when_today_slot_is_missing(ha
 	assert override_payload[2][0][12] == [1, [21, 30], [7, 0], "CAEQAw"]
 
 
-async def test_bedtime_override_returns_false_when_rule_id_is_missing(hass):
+@pytest.mark.parametrize(
+	"method_name",
+	["async_enable_bedtime", "async_disable_bedtime"],
+)
+async def test_bedtime_override_returns_false_when_rule_id_is_missing(
+	hass, method_name
+):
 	"""Bedtime overrides fail before posting when no rule ID is available."""
 	client = _authenticated_client(hass)
 	client.async_get_time_limit = AsyncMock(return_value={"bedtime_schedule": []})
 	client._get_session = AsyncMock()
 
-	assert await client.async_enable_bedtime("child-1") is False
+	assert await getattr(client, method_name)("child-1") is False
 
 	client._get_session.assert_not_awaited()
+
+
+async def test_bedtime_override_uses_default_child_when_account_id_is_missing(hass):
+	"""Bedtime override writes resolve and use the default supervised child."""
+	client = _authenticated_client(hass)
+	client.async_get_supervised_child_id = AsyncMock(return_value="default-child")
+	client.schedule_today = lambda account_id: 1
+	client.async_get_time_limit = AsyncMock(
+		return_value={
+			"bedtime_rule_id": "bedtime-rule",
+			"bedtime_schedule": [{"day": 1, "start": [20, 0], "end": [6, 30]}],
+		}
+	)
+	session = _action_session(client, put=[FakeResponse()], post=[FakeResponse()])
+
+	assert await client.async_enable_bedtime() is True
+
+	client.async_get_supervised_child_id.assert_awaited_once_with()
+	client.async_get_time_limit.assert_awaited_once_with("default-child")
+	assert all("/people/default-child/" in request["url"] for request in session.calls)
+	assert json.loads(session.calls[0]["data"])[1] == "default-child"
+	assert json.loads(session.calls[1]["data"])[1] == "default-child"
 
 
 async def test_bedtime_override_returns_false_when_weekly_update_fails(hass):
@@ -208,6 +236,38 @@ async def test_bedtime_override_returns_false_when_weekly_update_fails(hass):
 
 	assert await client.async_enable_bedtime("child-1") is False
 	assert [request["method"] for request in session.calls] == ["PUT"]
+
+
+async def test_bedtime_override_returns_false_when_today_override_post_fails(hass):
+	"""Bedtime override returns False when the second web-app-style write fails."""
+	client = _authenticated_client(hass)
+	client.schedule_today = lambda account_id: 1
+	client.async_get_time_limit = AsyncMock(
+		return_value={
+			"bedtime_rule_id": "bedtime-rule",
+			"bedtime_schedule": [{"day": 1, "start": [20, 45], "end": [6, 15]}],
+		}
+	)
+	session = _action_session(
+		client,
+		put=[FakeResponse()],
+		post=[FakeResponse(status=503)],
+	)
+
+	assert await client.async_enable_bedtime("child-1") is False
+	assert [request["method"] for request in session.calls] == ["PUT", "POST"]
+
+
+async def test_bedtime_override_returns_false_on_unexpected_write_exception(hass):
+	"""Bedtime override write exceptions are caught and reported as failure."""
+	client = _authenticated_client(hass)
+	client.schedule_today = lambda account_id: 1
+	client.async_get_time_limit = AsyncMock(
+		return_value={"bedtime_rule_id": "bedtime-rule", "bedtime_schedule": []}
+	)
+	client._get_session = AsyncMock(side_effect=RuntimeError("session exploded"))
+
+	assert await client.async_enable_bedtime("child-1") is False
 
 
 async def test_enable_school_time_posts_today_override_from_current_time(
@@ -258,9 +318,7 @@ async def test_enable_school_time_posts_today_override_from_current_time(
 	]
 
 
-async def test_disable_school_time_deletes_existing_overrides_before_posting(
-	hass, monkeypatch
-):
+async def test_disable_school_time_deletes_existing_overrides_before_posting(hass, monkeypatch):
 	"""Disabling school time clears matching overrides before posting action 1."""
 	monkeypatch.setattr(
 		api.dt_util,
@@ -268,33 +326,77 @@ async def test_disable_school_time_deletes_existing_overrides_before_posting(
 		lambda time_zone=None: datetime(2026, 6, 22, 16, 45, tzinfo=time_zone),
 	)
 	client = _authenticated_client(hass)
-	client._async_list_schooltime_overrides_today = AsyncMock(
-		return_value=["override-a", "override-b"]
+	session = _action_session(
+		client,
+		get=[
+			FakeResponse(
+				payload=[
+					None,
+					[[
+						_schooltime_override("override-a", 1, "school-rule"),
+						_schooltime_override("override-b", 1, "school-rule"),
+					]],
+				]
+			)
+		],
+		post=[FakeResponse(), FakeResponse(), FakeResponse()],
 	)
-	client._async_delete_time_limit_override = AsyncMock(return_value=True)
-	session = _action_session(client, post=[FakeResponse()])
 
 	assert await client.async_disable_school_time("child-1", "school-rule") is True
 
-	client._async_list_schooltime_overrides_today.assert_awaited_once_with(
-		"child-1", "school-rule", 1
-	)
-	client._async_delete_time_limit_override.assert_has_awaits(
-		[call("child-1", "override-a"), call("child-1", "override-b")]
-	)
-	payload = json.loads(session.calls[0]["data"])
+	assert [request["method"] for request in session.calls] == ["GET", "POST", "POST", "POST"]
+	assert [request["url"] for request in session.calls] == [
+		f"{FamilyLinkClient.BASE_URL}/people/child-1/timeLimit",
+		f"{FamilyLinkClient.BASE_URL}/people/child-1/timeLimitOverride/override-a",
+		f"{FamilyLinkClient.BASE_URL}/people/child-1/timeLimitOverride/override-b",
+		f"{FamilyLinkClient.BASE_URL}/people/child-1/timeLimitOverrides:batchCreate",
+	]
+	assert all("timeLimit:update" not in request["url"] for request in session.calls)
+	payload = json.loads(session.calls[-1]["data"])
 	assert payload[2][0][12] == [1, [16, 45], [23, 59], None, [1, "school-rule"]]
 
 
-async def test_school_time_override_returns_false_when_rule_id_is_missing(hass):
+@pytest.mark.parametrize(
+	"method_name",
+	["async_enable_school_time", "async_disable_school_time"],
+)
+async def test_school_time_override_returns_false_when_rule_id_is_missing(
+	hass, method_name
+):
 	"""School-time overrides fail before posting when no rule ID is available."""
 	client = _authenticated_client(hass)
 	client.async_get_time_limit = AsyncMock(return_value={})
 	client._get_session = AsyncMock()
 
-	assert await client.async_enable_school_time("child-1") is False
+	assert await getattr(client, method_name)("child-1") is False
 
 	client._get_session.assert_not_awaited()
+
+
+async def test_school_time_override_uses_default_child_when_account_id_is_missing(
+	hass, monkeypatch
+):
+	"""School-time override writes resolve and use the default supervised child."""
+	monkeypatch.setattr(
+		api.dt_util,
+		"now",
+		lambda time_zone=None: datetime(2026, 6, 22, 10, 5, tzinfo=time_zone),
+	)
+	client = _authenticated_client(hass)
+	client.async_get_supervised_child_id = AsyncMock(return_value="default-child")
+	client.async_get_time_limit = AsyncMock(
+		return_value={"schooltime_rule_id": "school-rule"}
+	)
+	session = _action_session(client, post=[FakeResponse()])
+
+	assert await client.async_enable_school_time() is True
+
+	client.async_get_supervised_child_id.assert_awaited_once_with()
+	client.async_get_time_limit.assert_awaited_once_with("default-child")
+	assert session.calls[0]["url"] == (
+		f"{FamilyLinkClient.BASE_URL}/people/default-child/timeLimitOverrides:batchCreate"
+	)
+	assert json.loads(session.calls[0]["data"])[1] == "default-child"
 
 
 async def test_school_time_override_returns_false_on_http_failure(hass, monkeypatch):
@@ -309,6 +411,14 @@ async def test_school_time_override_returns_false_on_http_failure(hass, monkeypa
 
 	assert await client.async_enable_school_time("child-1", "school-rule") is False
 	assert len(session.calls) == 1
+
+
+async def test_school_time_override_returns_false_on_unexpected_write_exception(hass):
+	"""School-time override write exceptions are caught and reported as failure."""
+	client = _authenticated_client(hass)
+	client._get_session = AsyncMock(side_effect=RuntimeError("session exploded"))
+
+	assert await client.async_enable_school_time("child-1", "school-rule") is False
 
 
 async def test_list_schooltime_overrides_returns_matching_today_entries(hass):
@@ -354,6 +464,19 @@ async def test_list_schooltime_overrides_returns_matching_today_entries(hass):
 	]
 
 
+async def test_list_schooltime_overrides_returns_empty_on_http_failure(hass):
+	"""School-time cleanup is best-effort when the read fails."""
+	client = _authenticated_client(hass)
+	session = _action_session(client, get=[FakeResponse(status=503)])
+
+	result = await client._async_list_schooltime_overrides_today(
+		"child-1", "school-rule", 1
+	)
+
+	assert result == []
+	assert [request["method"] for request in session.calls] == ["GET"]
+
+
 async def test_delete_time_limit_override_posts_delete_method_override(hass):
 	"""Deleting a time-limit override posts with Google's DELETE override param."""
 	client = _authenticated_client(hass)
@@ -372,6 +495,15 @@ async def test_delete_time_limit_override_posts_delete_method_override(hass):
 			"params": {"$httpMethod": "DELETE"},
 		}
 	]
+
+
+async def test_delete_time_limit_override_returns_false_on_http_failure(hass):
+	"""Deleting a time-limit override returns False on non-200 responses."""
+	client = _authenticated_client(hass)
+	session = _action_session(client, post=[FakeResponse(status=500)])
+
+	assert await client._async_delete_time_limit_override("child-1", "override-1") is False
+	assert [request["method"] for request in session.calls] == ["POST"]
 
 
 async def test_delete_time_limit_override_rejects_unsafe_override_id(hass):
