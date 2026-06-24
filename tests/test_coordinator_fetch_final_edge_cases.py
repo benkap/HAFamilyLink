@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from homeassistant.helpers.update_coordinator import UpdateFailed
+
 from custom_components.familylink.coordinator import FamilyLinkDataUpdateCoordinator
 from custom_components.familylink.exceptions import SessionExpiredError
 
@@ -107,6 +109,19 @@ async def test_update_data_returns_last_known_data_for_unexpected_exception(
 
 	assert result is cached_data
 	assert coordinator._last_known_data is cached_data
+	coordinator._async_fetch_data.assert_awaited_once()
+
+
+async def test_update_data_raises_update_failed_for_unexpected_exception_without_cache(
+	hass, mock_config_entry
+):
+	"""Unexpected fetch errors become UpdateFailed when no cache is available."""
+	coordinator = _coordinator(hass, mock_config_entry)
+	coordinator._async_fetch_data = AsyncMock(side_effect=ValueError("weird failure"))
+
+	with pytest.raises(UpdateFailed, match="Unexpected error: weird failure"):
+		await coordinator._async_update_data()
+
 	coordinator._async_fetch_data.assert_awaited_once()
 
 
