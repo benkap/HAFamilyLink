@@ -177,6 +177,14 @@ async def test_app_restriction_action_returns_false_for_non_401_failure(hass):
 	assert await client.async_set_app_daily_limit("com.example.game", 30, "child-1") is False
 
 
+async def test_app_restriction_action_returns_false_for_unexpected_error(hass):
+	"""Unexpected app restriction failures return False."""
+	client = _authenticated_client(hass)
+	client._get_session = AsyncMock(side_effect=RuntimeError("offline"))
+
+	assert await client.async_unblock_app("com.example.game", "child-1") is False
+
+
 async def test_block_device_for_school_blocks_and_unblocks_expected_apps(
 	hass, monkeypatch
 ):
@@ -302,6 +310,62 @@ async def test_control_device_returns_false_on_http_failure(hass):
 	assert await client.async_control_device("device-1", DEVICE_LOCK_ACTION, "child-1") is False
 
 
+@pytest.mark.parametrize(
+	("method_name", "args"),
+	[
+		("async_control_device", ("device-1", DEVICE_LOCK_ACTION, "child-1")),
+		("async_ring_device", ("device-1", "child-1")),
+		("async_add_time_bonus", (15, "device-1", "child-1")),
+		("async_cancel_time_bonus", ("override-1", "child-1")),
+	],
+)
+async def test_device_actions_require_authentication(hass, method_name, args):
+	"""Device mutation helpers reject unauthenticated calls."""
+	client = FamilyLinkClient(hass, {CONF_SCHEDULE_TIMEZONE: "UTC"})
+
+	with pytest.raises(AuthenticationError, match="Not authenticated"):
+		await getattr(client, method_name)(*args)
+
+
+@pytest.mark.parametrize(
+	("method_name", "args", "expected_url"),
+	[
+		(
+			"async_control_device",
+			("device-1", DEVICE_LOCK_ACTION),
+			f"{FamilyLinkClient.BASE_URL}/people/child-1/timeLimitOverrides:batchCreate",
+		),
+		(
+			"async_ring_device",
+			("device-1",),
+			f"{FamilyLinkClient.BASE_URL}/people/child-1/devices/device-1:executeRemoteAction",
+		),
+		(
+			"async_add_time_bonus",
+			(15, "device-1"),
+			f"{FamilyLinkClient.BASE_URL}/people/child-1/timeLimitOverrides:batchCreate",
+		),
+		(
+			"async_cancel_time_bonus",
+			("override-1",),
+			f"{FamilyLinkClient.BASE_URL}/people/child-1/timeLimitOverride/override-1?$httpMethod=DELETE",
+		),
+	],
+)
+async def test_device_actions_use_first_child_when_not_provided(
+	hass, method_name, args, expected_url
+):
+	"""Device mutation helpers resolve the first supervised child when needed."""
+	client = _authenticated_client(hass)
+	session = _action_session(client)
+	client.async_get_supervised_child_id = AsyncMock(return_value="child-1")
+
+	assert await getattr(client, method_name)(*args) is True
+
+	client.async_get_supervised_child_id.assert_awaited_once()
+	assert session.calls[0]["url"] == expected_url
+
+
 async def test_ring_device_posts_remote_action_payload(hass):
 	"""Device ring posts the executeRemoteAction payload."""
 	client = _authenticated_client(hass)
@@ -330,6 +394,24 @@ async def test_ring_device_validates_device_id(hass):
 
 	with pytest.raises(ValueError, match="Invalid device_id"):
 		await client.async_ring_device("device/1", "child-1")
+
+
+@pytest.mark.parametrize(
+	("method_name", "args"),
+	[
+		("async_ring_device", ("device-1", "child-1")),
+		("async_add_time_bonus", (15, "device-1", "child-1")),
+		("async_cancel_time_bonus", ("override-1", "child-1")),
+	],
+)
+async def test_device_actions_return_false_on_http_failure(
+	hass, method_name, args
+):
+	"""Non-control device action HTTP failures return False."""
+	client = _authenticated_client(hass)
+	_action_session(client, FakeResponse(status=500))
+
+	assert await getattr(client, method_name)(*args) is False
 
 
 async def test_add_time_bonus_posts_seconds_payload(hass):
@@ -366,6 +448,15 @@ async def test_cancel_time_bonus_posts_delete_override_url(hass):
 			},
 		}
 	]
+
+
+async def test_cancel_time_bonus_rejects_unsafe_override_id_without_posting(hass):
+	"""Cancelling a bonus validates the override ID before posting."""
+	client = _authenticated_client(hass)
+	session = _action_session(client)
+
+	assert await client.async_cancel_time_bonus("override/1", "child-1") is False
+	assert session.calls == []
 
 
 @pytest.mark.parametrize(
