@@ -31,10 +31,12 @@ class FakeResponse:
 		status: int = 200,
 		payload: object | None = None,
 		text: str = "response text",
+		json_error: Exception | None = None,
 	) -> None:
 		self.status = status
 		self._payload = payload if payload is not None else [None, []]
 		self._text = text
+		self._json_error = json_error
 
 	async def __aenter__(self):
 		return self
@@ -43,6 +45,8 @@ class FakeResponse:
 		return None
 
 	async def json(self):
+		if self._json_error is not None:
+			raise self._json_error
 		return self._payload
 
 	async def text(self):
@@ -66,6 +70,16 @@ def _get_session(client: FamilyLinkClient, response: FakeResponse | None = None)
 	session = FakeSession(response or FakeResponse())
 	client._get_session = AsyncMock(return_value=session)
 	return session
+
+
+def _empty_result() -> dict[str, object]:
+	"""Return the stable empty applied time-limit shape."""
+	return {
+		"device_lock_states": {},
+		"devices": {},
+		"bedtime_enabled_today": False,
+		"schooltime_enabled_today": False,
+	}
 
 
 def _device_row(
@@ -93,12 +107,7 @@ async def test_applied_time_limits_fetches_expected_endpoint_with_default_child(
 	client.async_get_supervised_child_id = AsyncMock(return_value="child-1")
 	session = _get_session(client)
 
-	assert await client.async_get_applied_time_limits() == {
-		"device_lock_states": {},
-		"devices": {},
-		"bedtime_enabled_today": False,
-		"schooltime_enabled_today": False,
-	}
+	assert await client.async_get_applied_time_limits() == _empty_result()
 
 	client.async_get_supervised_child_id.assert_awaited_once()
 	assert session.calls == [
@@ -220,6 +229,120 @@ async def test_applied_time_limits_parse_lock_state_and_non_bonus_remaining(
 
 
 @pytest.mark.parametrize(
+	"payload",
+	[
+		[],
+		[None],
+		[None, None],
+		[None, ["not-a-device-row", [None] * 24, [None] * 26]],
+	],
+)
+async def test_applied_time_limits_sparse_payloads_return_empty_defaults(
+	hass, payload
+):
+	"""Sparse appliedTimeLimits payloads return the stable empty shape."""
+	client = _authenticated_client(hass)
+	_get_session(client, FakeResponse(payload=payload))
+
+	assert await client.async_get_applied_time_limits("child-1") == _empty_result()
+
+
+async def test_applied_time_limits_sparse_device_row_uses_default_device_values(
+	hass,
+):
+	"""A device row with only an ID keeps the device defaults stable."""
+	client = _authenticated_client(hass)
+	_get_session(
+		client,
+		FakeResponse(payload=[None, [_device_row(device_id="device-1")]]),
+	)
+
+	result = await client.async_get_applied_time_limits("child-1")
+
+	assert result["device_lock_states"] == {"device-1": False}
+	assert result["devices"] == {
+		"device-1": {
+			"total_allowed_minutes": 0,
+			"used_minutes": 0,
+			"remaining_minutes": 0,
+			"daily_limit_enabled": False,
+			"daily_limit_minutes": 0,
+			"bedtime_window": None,
+			"bedtime_window_start": None,
+			"bedtime_window_end": None,
+			"schooltime_window": None,
+			"bedtime_active": False,
+			"schooltime_active": False,
+			"bonus_minutes": 0,
+			"bonus_override_id": None,
+		}
+	}
+	assert result["bedtime_enabled_today"] is False
+	assert result["schooltime_enabled_today"] is False
+
+
+async def test_applied_time_limits_supplied_child_ignores_malformed_bonus(
+	hass,
+):
+	"""Explicit child requests use that endpoint and ignore bad bonus durations."""
+	client = _authenticated_client(hass)
+	client.async_get_supervised_child_id = AsyncMock(
+		side_effect=AssertionError("default child should not be resolved")
+	)
+	client.schedule_today = lambda account_id: 1
+	malformed_bonus_override = [
+		"bonus-override-1",
+		"1000",
+		10,
+		"override-device",
+		None,
+		None,
+		None,
+		None,
+		None,
+		None,
+		None,
+		None,
+		None,
+		[["not-seconds", 0]],
+	]
+	session = _get_session(
+		client,
+		FakeResponse(
+			payload=[
+				None,
+				[
+					_device_row(
+						["CAEQAQ", 1, 2, 60, "created", "updated"],
+						device_id="row-device",
+						override=malformed_bonus_override,
+						used_ms="600000",
+					)
+				],
+			]
+		),
+	)
+
+	result = await client.async_get_applied_time_limits("explicit-child")
+
+	client.async_get_supervised_child_id.assert_not_awaited()
+	assert session.calls[0]["url"] == (
+		f"{FamilyLinkClient.BASE_URL}/people/explicit-child/appliedTimeLimits"
+	)
+	assert result["device_lock_states"] == {"override-device": False}
+	assert set(result["devices"]) == {"override-device"}
+	device = result["devices"]["override-device"]
+	assert device["daily_limit_enabled"] is True
+	assert device["daily_limit_minutes"] == 60
+	assert device["used_minutes"] == 10
+	assert device["daily_limit_remaining"] == 50
+	assert device["bonus_override_id"] is None
+	assert device["bonus_minutes"] == 0
+	assert device["total_allowed_minutes"] == 60
+	assert device["remaining_minutes"] == 50
+
+
+@pytest.mark.parametrize(
 	("status", "expected_error"),
 	[
 		(401, SessionExpiredError),
@@ -234,6 +357,15 @@ async def test_applied_time_limits_raise_for_http_failures(
 	_get_session(client, FakeResponse(status=status))
 
 	with pytest.raises(expected_error):
+		await client.async_get_applied_time_limits("child-1")
+
+
+async def test_applied_time_limits_wrap_unexpected_response_errors(hass):
+	"""Unexpected response parsing failures surface as NetworkError."""
+	client = _authenticated_client(hass)
+	_get_session(client, FakeResponse(json_error=RuntimeError("bad json")))
+
+	with pytest.raises(NetworkError, match="bad json"):
 		await client.async_get_applied_time_limits("child-1")
 
 
