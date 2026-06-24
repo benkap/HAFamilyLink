@@ -8,7 +8,12 @@ import pytest
 from homeassistant.exceptions import ConfigEntryNotReady
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.familylink import async_setup_entry, async_setup_services, async_unload_entry
+from custom_components.familylink import (
+	async_options_updated,
+	async_setup_entry,
+	async_setup_services,
+	async_unload_entry,
+)
 from custom_components.familylink.const import (
 	DOMAIN,
 	SERVICE_BLOCK_APP,
@@ -53,6 +58,48 @@ async def test_setup_entry_raises_not_ready_on_coordinator_failure(
 		await async_setup_entry(hass, mock_config_entry)
 
 
+async def test_setup_entry_raises_not_ready_on_unexpected_coordinator_failure(
+	hass, mock_config_entry, harness_coordinator, monkeypatch
+):
+	"""Unexpected coordinator refresh failures are surfaced as ConfigEntryNotReady."""
+	harness_coordinator.async_config_entry_first_refresh.side_effect = RuntimeError("boom")
+	monkeypatch.setattr(
+		"custom_components.familylink.FamilyLinkDataUpdateCoordinator",
+		lambda hass, entry: harness_coordinator,
+	)
+
+	with pytest.raises(ConfigEntryNotReady, match="Unexpected error: boom"):
+		await async_setup_entry(hass, mock_config_entry)
+
+
+async def test_setup_entry_raises_not_ready_on_unexpected_platform_setup_failure(
+	hass, mock_config_entry, harness_coordinator, monkeypatch
+):
+	"""Unexpected platform setup failures are surfaced as ConfigEntryNotReady."""
+	mock_config_entry.add_to_hass(hass)
+	forward_setups = AsyncMock(side_effect=RuntimeError("platform boom"))
+	monkeypatch.setattr(hass.config_entries, "async_forward_entry_setups", forward_setups)
+	monkeypatch.setattr(
+		"custom_components.familylink.FamilyLinkDataUpdateCoordinator",
+		lambda hass, entry: harness_coordinator,
+	)
+
+	with pytest.raises(ConfigEntryNotReady, match="Unexpected error: platform boom"):
+		await async_setup_entry(hass, mock_config_entry)
+
+	forward_setups.assert_awaited_once()
+
+
+async def test_async_options_updated_reloads_entry(hass, mock_config_entry, monkeypatch):
+	"""Options updates reload the config entry."""
+	reload_entry = AsyncMock()
+	monkeypatch.setattr(hass.config_entries, "async_reload", reload_entry)
+
+	await async_options_updated(hass, mock_config_entry)
+
+	reload_entry.assert_awaited_once_with(mock_config_entry.entry_id)
+
+
 async def test_unload_removes_services_only_after_last_entry(
 	hass, harness_coordinator, monkeypatch
 ):
@@ -82,3 +129,43 @@ async def test_unload_removes_services_only_after_last_entry(
 	assert not hass.services.has_service(DOMAIN, SERVICE_RING_DEVICE)
 	coordinator_one.async_cleanup.assert_awaited_once()
 	coordinator_two.async_cleanup.assert_awaited_once()
+
+
+async def test_unload_preserves_data_and_services_when_platform_unload_fails(
+	hass, mock_config_entry, harness_coordinator, monkeypatch
+):
+	"""Failed platform unload keeps coordinator data and services intact."""
+	hass.data[DOMAIN] = {mock_config_entry.entry_id: harness_coordinator}
+	await async_setup_services(hass, harness_coordinator)
+	monkeypatch.setattr(
+		hass.config_entries,
+		"async_unload_platforms",
+		AsyncMock(return_value=False),
+	)
+
+	assert await async_unload_entry(hass, mock_config_entry) is False
+
+	assert hass.data[DOMAIN][mock_config_entry.entry_id] is harness_coordinator
+	assert hass.services.has_service(DOMAIN, SERVICE_SET_BEDTIME_SCHEDULE)
+	assert hass.services.has_service(DOMAIN, SERVICE_RING_DEVICE)
+	harness_coordinator.async_cleanup.assert_not_awaited()
+
+
+async def test_unload_removes_services_when_coordinator_data_is_missing(
+	hass, mock_config_entry, harness_coordinator, monkeypatch
+):
+	"""Successful unload still unregisters services if coordinator data is already gone."""
+	hass.data[DOMAIN] = {}
+	await async_setup_services(hass, harness_coordinator)
+	monkeypatch.setattr(
+		hass.config_entries,
+		"async_unload_platforms",
+		AsyncMock(return_value=True),
+	)
+
+	assert await async_unload_entry(hass, mock_config_entry) is True
+
+	assert hass.data[DOMAIN] == {}
+	assert not hass.services.has_service(DOMAIN, SERVICE_SET_BEDTIME_SCHEDULE)
+	assert not hass.services.has_service(DOMAIN, SERVICE_RING_DEVICE)
+	harness_coordinator.async_cleanup.assert_not_awaited()
