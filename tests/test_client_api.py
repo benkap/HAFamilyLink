@@ -1,0 +1,496 @@
+"""Tests for the Family Link API client core behavior."""
+from __future__ import annotations
+
+from datetime import datetime
+import hashlib
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import aiohttp
+import pytest
+
+from custom_components.familylink.client.api import FamilyLinkClient
+from custom_components.familylink.const import CONF_SCHEDULE_TIMEZONE
+from custom_components.familylink.exceptions import (
+	AuthenticationError,
+	NetworkError,
+	SessionExpiredError,
+)
+
+
+def _client(hass, *, timezone: str = "UTC") -> FamilyLinkClient:
+	"""Return a client configured for offline unit tests."""
+	return FamilyLinkClient(hass, {CONF_SCHEDULE_TIMEZONE: timezone})
+
+
+def _authenticated_client(hass, *, timezone: str = "UTC") -> FamilyLinkClient:
+	"""Return an authenticated client with test cookies."""
+	client = _client(hass, timezone=timezone)
+	client._cookies = [{"name": "SAPISID", "value": "cookie", "domain": ".google.com"}]
+	return client
+
+
+class FakeResponse:
+	"""Async response context manager for API calls."""
+
+	def __init__(
+		self,
+		status: int = 200,
+		payload: object | None = None,
+		text: str = "response text",
+	) -> None:
+		self.status = status
+		self._payload = payload if payload is not None else {}
+		self._text = text
+
+	async def __aenter__(self):
+		return self
+
+	async def __aexit__(self, exc_type, exc, tb) -> None:
+		return None
+
+	async def json(self):
+		return self._payload
+
+	async def text(self):
+		return self._text
+
+	def raise_for_status(self) -> None:
+		if self.status >= 400:
+			raise aiohttp.ClientResponseError(
+				request_info=None,
+				history=(),
+				status=self.status,
+				message="error",
+				headers={},
+			)
+
+
+class FakeSession:
+	"""HTTP session fake that records GET calls."""
+
+	def __init__(self, response: FakeResponse) -> None:
+		self.response = response
+		self.calls: list[dict[str, object]] = []
+
+	def get(self, url, **kwargs):
+		self.calls.append({"method": "GET", "url": url, **kwargs})
+		return self.response
+
+
+def test_people_url_validates_account_id_before_interpolation(hass):
+	"""Account IDs used in URLs reject path separators and shell-ish input."""
+	client = _client(hass)
+
+	assert (
+		client._people_url("child-123_ok", "devices")
+		== f"{FamilyLinkClient.BASE_URL}/people/child-123_ok/devices"
+	)
+
+	for unsafe_id in ("", "../child", "child/other", "child?x=1", "child space"):
+		with pytest.raises(ValueError, match="Invalid account_id"):
+			client._people_url(unsafe_id, "devices")
+
+
+def test_cookie_dict_prioritizes_google_domain_and_strips_quotes(hass):
+	"""Cookie handling prefers google.com and keeps raw unquoted header values."""
+	client = _client(hass)
+	client._cookies = [
+		{"name": "SAPISID", "value": '"regional/value"', "domain": ".google.com.au"},
+		{"name": "OTHER", "value": '"other/value"', "domain": ".example.test"},
+		{"name": "SAPISID", "value": '"primary/value"', "domain": ".google.com"},
+		{"name": "IGNORED_EMPTY", "value": "", "domain": ".google.com"},
+		{"name": "", "value": "ignored", "domain": ".google.com"},
+	]
+
+	assert client._get_cookies_dict() == {
+		"SAPISID": "primary/value",
+		"OTHER": "other/value",
+	}
+	assert client._get_cookie_header() == "SAPISID=primary/value; OTHER=other/value"
+
+
+def test_generate_sapisidhash_uses_current_timestamp(monkeypatch, hass):
+	"""SAPISIDHASH uses the current timestamp, SAPISID, and origin."""
+	monkeypatch.setattr("custom_components.familylink.client.api.time.time", lambda: 1234)
+	client = _client(hass)
+
+	result = client._generate_sapisidhash("cookie-value", "https://familylink.google.com")
+
+	expected_hash = hashlib.sha1(
+		b"1234 cookie-value https://familylink.google.com"
+	).hexdigest()
+	assert result == f"1234_{expected_hash}"
+
+
+def test_google_schedule_timezone_is_cached_from_devices_payload(hass):
+	"""Google device timezone is cached unless config pins a timezone."""
+	client = _client(hass, timezone="")
+	devices_payload = [None, [[None] * 11 + [["Asia/Jerusalem"]]]]
+
+	client.update_google_schedule_timezone("child-1", devices_payload)
+
+	assert client._google_schedule_timezones == {"child-1": "Asia/Jerusalem"}
+	assert client._schedule_time_zone_context("child-1")[1:] == (
+		"Asia/Jerusalem",
+		"google",
+	)
+
+	configured_client = _client(hass, timezone="UTC")
+	configured_client.update_google_schedule_timezone("child-1", devices_payload)
+	assert configured_client._google_schedule_timezones == {}
+
+
+async def test_authenticate_loads_cookies_from_addon(hass):
+	"""Authentication stores cookies returned by the add-on client."""
+	client = _client(hass)
+	cookies = [{"name": "SAPISID", "value": "cookie"}]
+	client.addon_client = SimpleNamespace(load_cookies=AsyncMock(return_value=cookies))
+
+	await client.async_authenticate()
+
+	assert client.is_authenticated()
+	assert client._cookies == cookies
+	client.addon_client.load_cookies.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+	("last_fetch_status", "message"),
+	[
+		(403, "requires an API key"),
+		(None, "No cookies found"),
+	],
+)
+async def test_authenticate_reports_missing_cookies(
+	hass, last_fetch_status, message
+):
+	"""Authentication errors distinguish invalid API keys from missing cookies."""
+	client = _client(hass)
+	client.addon_client = SimpleNamespace(
+		load_cookies=AsyncMock(return_value=None),
+		last_fetch_status=last_fetch_status,
+	)
+
+	with pytest.raises(AuthenticationError, match=message):
+		await client.async_authenticate()
+
+
+async def test_refresh_session_clears_cached_cookies_and_closes_session(hass):
+	"""Refreshing auth drops stale cookie caches and closes the old session."""
+	client = _client(hass)
+	old_session = SimpleNamespace(close=AsyncMock())
+	cookies = [{"name": "SAPISID", "value": "fresh"}]
+	client._session = old_session
+	client._cookies = [{"name": "SAPISID", "value": "stale"}]
+	client._cookie_dict = {"SAPISID": "stale"}
+	client._cookie_header = "SAPISID=stale"
+	client.addon_client = SimpleNamespace(load_cookies=AsyncMock(return_value=cookies))
+
+	await client.async_refresh_session()
+
+	old_session.close.assert_awaited_once()
+	assert client._session is None
+	assert client._cookies == cookies
+	assert not hasattr(client, "_cookie_dict")
+	assert not hasattr(client, "_cookie_header")
+
+
+async def test_get_session_uses_prioritized_sapisid_cookie(monkeypatch, hass):
+	"""Session creation uses the highest-priority SAPISID cookie domain."""
+	created_sessions = []
+
+	class FakeSession:
+		def __init__(self, *, headers, timeout):
+			self.headers = headers
+			self.timeout = timeout
+			self.close = AsyncMock()
+			created_sessions.append(self)
+
+	monkeypatch.setattr(
+		"custom_components.familylink.client.api.aiohttp.ClientSession",
+		FakeSession,
+	)
+	monkeypatch.setattr(
+		"custom_components.familylink.client.api.time.time",
+		lambda: 1234,
+	)
+	client = _client(hass)
+	client._cookies = [
+		{"name": "SAPISID", "value": "regional", "domain": ".google.com.au"},
+		{"name": "SAPISID", "value": '"primary"', "domain": ".google.com"},
+	]
+
+	session = await client._get_session()
+
+	expected_hash = hashlib.sha1(
+		b"1234 primary https://familylink.google.com"
+	).hexdigest()
+	assert session is created_sessions[0]
+	assert session.headers["Authorization"] == f"SAPISIDHASH 1234_{expected_hash}"
+	assert session.headers["Origin"] == FamilyLinkClient.ORIGIN
+
+
+async def test_get_session_requires_sapisid_cookie(hass):
+	"""Session creation fails loudly when auth data lacks SAPISID."""
+	client = _client(hass)
+	client._cookies = [{"name": "SID", "value": "cookie", "domain": ".google.com"}]
+
+	with pytest.raises(AuthenticationError, match="SAPISID cookie not found"):
+		await client._get_session()
+
+
+async def test_supervised_child_helpers_parse_family_members(hass):
+	"""Family member helpers find supervised children and cache the first ID."""
+	client = _client(hass)
+	client.async_get_family_members = AsyncMock(
+		return_value={
+			"members": [
+				{
+					"userId": "parent-1",
+					"profile": {"displayName": "Parent"},
+				},
+				{
+					"userId": "child-1",
+					"profile": {"displayName": "Alex"},
+					"memberSupervisionInfo": {"isSupervisedMember": True},
+				},
+				{
+					"userId": "child-2",
+					"profile": {"displayName": "Sam"},
+					"memberSupervisionInfo": {"isSupervisedMember": True},
+				},
+			]
+		}
+	)
+
+	assert await client.async_get_supervised_child_id() == "child-1"
+	assert client._account_id == "child-1"
+	assert await client.async_get_supervised_child_id() == "child-1"
+	assert client.async_get_family_members.await_count == 1
+
+	assert await client.async_get_all_supervised_children() == [
+		{"id": "child-1", "name": "Alex"},
+		{"id": "child-2", "name": "Sam"},
+	]
+
+
+async def test_supervised_child_helpers_raise_without_children(hass):
+	"""Family member helpers raise clear errors when no supervised child exists."""
+	client = _client(hass)
+	client.async_get_family_members = AsyncMock(return_value={"members": []})
+
+	with pytest.raises(ValueError, match="No supervised child"):
+		await client.async_get_supervised_child_id()
+
+	with pytest.raises(ValueError, match="No supervised children"):
+		await client.async_get_all_supervised_children()
+
+
+async def test_get_family_members_fetches_json_with_cookie_header(hass):
+	"""Family member requests send the manually built Cookie header."""
+	client = _authenticated_client(hass)
+	payload = {"members": [{"userId": "child-1"}]}
+	session = FakeSession(FakeResponse(payload=payload))
+	client._get_session = AsyncMock(return_value=session)
+
+	assert await client.async_get_family_members() == payload
+	assert session.calls == [
+		{
+			"method": "GET",
+			"url": f"{FamilyLinkClient.BASE_URL}/families/mine/members",
+			"headers": {
+				"Content-Type": "application/json",
+				"Cookie": "SAPISID=cookie",
+			},
+		}
+	]
+
+
+async def test_get_family_members_raises_session_expired_on_401(hass):
+	"""A 401 family-member response is surfaced as a session-expired error."""
+	client = _authenticated_client(hass)
+	client._get_session = AsyncMock(return_value=FakeSession(FakeResponse(status=401)))
+
+	with pytest.raises(SessionExpiredError, match="Session expired"):
+		await client.async_get_family_members()
+
+
+async def test_get_apps_and_usage_uses_expected_capability_params(hass):
+	"""Apps and usage calls request both required capabilities."""
+	client = _authenticated_client(hass)
+	payload = {"apps": [], "deviceInfo": [], "appUsageSessions": []}
+	session = FakeSession(FakeResponse(payload=payload))
+	client._get_session = AsyncMock(return_value=session)
+
+	assert await client.async_get_apps_and_usage("child-1") == payload
+	assert session.calls == [
+		{
+			"method": "GET",
+			"url": f"{FamilyLinkClient.BASE_URL}/people/child-1/appsandusage",
+			"headers": {
+				"Content-Type": "application/json",
+				"Cookie": "SAPISID=cookie",
+			},
+			"params": [
+				("capabilities", "CAPABILITY_APP_USAGE_SESSION"),
+				("capabilities", "CAPABILITY_SUPERVISION_CAPABILITIES"),
+			],
+		}
+	]
+
+
+async def test_get_devices_payload_uses_include_unmanaged_devices(hass):
+	"""Device payload requests include unmanaged devices for timezone discovery."""
+	client = _authenticated_client(hass)
+	payload = [None, []]
+	session = FakeSession(FakeResponse(payload=payload))
+	client._get_session = AsyncMock(return_value=session)
+
+	assert await client.async_get_devices_payload("child-1") == payload
+	assert session.calls == [
+		{
+			"method": "GET",
+			"url": f"{FamilyLinkClient.BASE_URL}/people/child-1/devices",
+			"headers": {
+				"Content-Type": "application/json+protobuf",
+				"Cookie": "SAPISID=cookie",
+			},
+			"params": {"includeUnmanagedDevices": "true"},
+		}
+	]
+
+
+async def test_update_google_schedule_timezone_marks_child_checked_on_failure(hass):
+	"""Best-effort timezone discovery does not repeatedly retry failed children."""
+	client = _client(hass, timezone="")
+	client.async_get_devices_payload = AsyncMock(side_effect=NetworkError("boom"))
+
+	await client.async_update_google_schedule_timezone_from_devices("child-1")
+
+	assert client._google_schedule_timezone_checked == {"child-1"}
+	assert client._google_schedule_timezones == {}
+
+
+async def test_get_location_parses_location_payload(hass):
+	"""Location responses are converted into Home Assistant friendly fields."""
+	client = _authenticated_client(hass)
+	session = FakeSession(
+		FakeResponse(
+			payload=[
+				[None, 1710000000000],
+				[
+					"child-1",
+					"status",
+					[
+						[32.0853, 34.7818],
+						1710000000000,
+						25,
+						None,
+						["place-1", "Home", "1 Test Street"],
+						None,
+						"device-1",
+						None,
+						["84", "charging"],
+					],
+				],
+			]
+		)
+	)
+	client._get_session = AsyncMock(return_value=session)
+
+	result = await client.async_get_location("child-1", refresh=True)
+
+	assert result == {
+		"latitude": 32.0853,
+		"longitude": 34.7818,
+		"accuracy": 25,
+		"timestamp": 1710000000000,
+		"timestamp_iso": datetime.fromtimestamp(1710000000000 / 1000).isoformat(),
+		"place_id": "place-1",
+		"place_name": "Home",
+		"place_address": "1 Test Street",
+		"source_device_id": "device-1",
+		"battery_level": 84,
+	}
+	assert session.calls[0]["params"] == [
+		("locationRefreshMode", "REFRESH"),
+		("supportedConsents", "SUPERVISED_LOCATION_SHARING"),
+	]
+
+
+@pytest.mark.parametrize("status", [404, 500])
+async def test_get_location_returns_none_when_unavailable(hass, status):
+	"""Unavailable location responses do not fail coordinator refreshes."""
+	client = _authenticated_client(hass)
+	client._get_session = AsyncMock(return_value=FakeSession(FakeResponse(status=status)))
+
+	assert await client.async_get_location("child-1") is None
+
+
+async def test_daily_screen_time_aggregates_matching_day_sessions(hass):
+	"""Daily screen time sums only sessions from the requested date."""
+	client = _client(hass)
+
+	result = await client.async_get_daily_screen_time(
+		account_id="child-1",
+		target_date=datetime(2026, 6, 24),
+		data={
+			"appUsageSessions": [
+				{
+					"date": {"year": 2026, "month": 6, "day": 24},
+					"usage": "1800.5s",
+					"appId": {"androidAppPackageName": "com.video"},
+				},
+				{
+					"date": {"year": 2026, "month": 6, "day": 24},
+					"usage": "bad",
+					"appId": {"androidAppPackageName": "com.video"},
+				},
+				{
+					"date": {"year": 2026, "month": 6, "day": 24},
+					"usage": "60s",
+					"appId": {"androidAppPackageName": "com.music"},
+				},
+				{
+					"date": {"year": 2026, "month": 6, "day": 23},
+					"usage": "999s",
+					"appId": {"androidAppPackageName": "com.old"},
+				},
+			]
+		},
+	)
+
+	assert result["total_seconds"] == 1860.5
+	assert result["formatted"] == "00:31:00"
+	assert result["hours"] == 0
+	assert result["minutes"] == 31
+	assert result["seconds"] == 0
+	assert result["app_breakdown"] == {
+		"com.video": 1800.5,
+		"com.music": 60.0,
+	}
+
+
+async def test_daily_screen_time_wraps_unexpected_errors(hass):
+	"""Unexpected usage fetch errors are surfaced as NetworkError."""
+	client = _client(hass)
+	client.async_get_apps_and_usage = AsyncMock(side_effect=RuntimeError("boom"))
+
+	with pytest.raises(NetworkError, match="Failed to fetch daily screen time"):
+		await client.async_get_daily_screen_time(account_id="child-1")
+
+
+async def test_cleanup_closes_session_and_clears_cookie_caches(hass):
+	"""Cleanup closes the active session and drops cached cookie helpers."""
+	client = _client(hass)
+	session = SimpleNamespace(close=AsyncMock())
+	client._session = session
+	client._cookie_dict = {"SAPISID": "cookie"}
+	client._cookie_header = "SAPISID=cookie"
+
+	await client.async_cleanup()
+
+	session.close.assert_awaited_once()
+	assert client._session is None
+	assert not hasattr(client, "_cookie_dict")
+	assert not hasattr(client, "_cookie_header")
