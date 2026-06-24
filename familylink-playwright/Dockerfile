@@ -4,36 +4,10 @@ FROM ${BUILD_FROM}
 # Set shell
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Install system dependencies required for Playwright and Chromium
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        python3 \
-        python3-pip \
-        python3-dev \
-        curl \
-        nodejs \
-        npm \
-        ca-certificates \
-        fonts-liberation \
-        libnss3 \
-        libatk-bridge2.0-0 \
-        libdrm2 \
-        libxkbcommon0 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxfixes3 \
-        libxrandr2 \
-        libgbm1 \
-        libasound2 \
-        xvfb \
-        x11vnc \
-        novnc \
-        python3-websockify \
-        fluxbox \
-        xterm \
-        dbus \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Install system dependencies shared by the add-on and standalone images.
+COPY scripts/install-runtime-deps.sh /tmp/install-runtime-deps.sh
+RUN /tmp/install-runtime-deps.sh \
+    && rm /tmp/install-runtime-deps.sh
 
 # Set environment variables for Playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -47,10 +21,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
-# Install Playwright and its browsers
-# Debian-based image supports Playwright on ARM64
-RUN pip3 install --no-cache-dir --break-system-packages playwright && \
-    playwright install --with-deps chromium
+# Install Chromium for Playwright. Debian-based images support ARM64.
+RUN python3 -m playwright install --with-deps chromium
 
 # Copy application code
 COPY app/ /app/app/
