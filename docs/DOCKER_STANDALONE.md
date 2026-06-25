@@ -169,6 +169,16 @@ docker rm familylink-auth
 
 ## Troubleshooting
 
+### Local smoke test
+
+From a repo checkout, run the standalone smoke helper after building or pulling the image:
+
+```bash
+familylink-playwright/scripts/smoke-standalone.sh
+```
+
+The helper starts a temporary container, checks `/api/health`, confirms `/api/cookies` rejects unauthenticated requests, and verifies the generated key is accepted.
+
 ### Container won't start
 - Ensure `shm_size` is set to at least `2gb` (Chromium needs shared memory)
 - Check logs: `docker logs familylink-auth`
