@@ -48,7 +48,7 @@ services:
       - 8.8.4.4
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8099/api/health"]
+      test: ["CMD", "familylink-healthcheck"]
       interval: 30s
       timeout: 10s
       retries: 3
