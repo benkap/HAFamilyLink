@@ -35,14 +35,8 @@ RUN python3 -m playwright install --with-deps --no-shell chromium \
 
 # Copy application code
 COPY app/ /app/app/
-COPY rootfs/ /
-COPY welcome-banner.sh /usr/local/bin/welcome-banner.sh
-
-# Set permissions
-RUN chmod a+x /usr/local/bin/run.sh && \
-    chmod a+x /usr/local/bin/welcome-banner.sh && \
-    chmod a+x /etc/services.d/familylink/run && \
-    chmod a+x /etc/services.d/familylink/finish
+COPY --chmod=755 rootfs/ /
+COPY --chmod=755 welcome-banner.sh /usr/local/bin/welcome-banner.sh
 
 # Create necessary directories
 RUN mkdir -p /share/familylink && \
