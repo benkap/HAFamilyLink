@@ -116,7 +116,7 @@ The authentication flow uses **two ports**:
 - Port **8099** — the Web UI where you trigger the auth flow
 - Port **6080** — the noVNC window where you complete the Google login
 
-Order matters:
+**Order matters:**
 
 1. Open the **Web UI** in your browser: `http://<your-docker-host>:8099`
 2. Click **"Start Authentication"** — this launches a Chromium browser inside the container

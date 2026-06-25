@@ -67,6 +67,8 @@ Please include:
 
 Keep pull requests reviewable. Prefer one clear change over a grab bag.
 
+Please be patient after opening an issue or pull request. Responses happen when maintainers have free time, and fast replies are not guaranteed.
+
 ## Bug Reports
 
 Good bug reports include:
