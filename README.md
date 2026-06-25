@@ -1,4 +1,4 @@
-# <img src="https://brands.home-assistant.io/familylink/icon.png" alt="Google Family Link" width="30" > Google Family Link Home Assistant Integration
+# <img src="https://brands.home-assistant.io/familylink/icon.png" alt="Google Family Link Extended" width="30" > Google Family Link Extended Home Assistant Integration
 
 [![GitHub Release][releases-shield]][releases]
 [![HACS][hacsbadge]][hacs]
@@ -236,7 +236,7 @@ This integration is configured entirely through the Home Assistant UI (Config Fl
 1. Go to **Settings → Devices & Services → Add Integration**
 2. Search for "**Family Link**" and select it
 3. Configure the following options in the setup wizard:
-   - **Name**: Display name for the integration (default: "Google Family Link")
+   - **Name**: Display name for the integration (default: "Google Family Link Extended")
    - **Update Interval**: How often to fetch data, in seconds (default: 300, range: 30-3600)
    - **Timeout**: API request timeout in seconds (default: 30)
    - **Enable GPS Location Tracking**: Opt-in for device location tracking (default: disabled)
