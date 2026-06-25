@@ -24,12 +24,14 @@ WORKDIR /app
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
+COPY --chmod=755 scripts/healthcheck.py /usr/local/bin/familylink-healthcheck
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip3 install --break-system-packages --no-compile -r requirements.txt
 
 # Install headed Chromium for Playwright. The auth flow uses Xvfb/noVNC, so
 # the separate Chromium headless shell is unused image weight.
-RUN python3 -m playwright install --with-deps --no-shell chromium
+RUN python3 -m playwright install --with-deps --no-shell chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy application code
 COPY app/ /app/app/
@@ -51,7 +53,7 @@ EXPOSE 8099 6080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD python3 -c "from urllib.request import urlopen; urlopen('http://127.0.0.1:8099/api/health', timeout=5).close()" || exit 1
+    CMD familylink-healthcheck
 
 # Labels
 LABEL \
