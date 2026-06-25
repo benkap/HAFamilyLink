@@ -6,6 +6,22 @@
 
 Built from the brilliant work by [@noiwid](https://github.com/noiwid), this fork adds the Family Link API coverage and opinionated tweaks I needed for my own home. If that sounds like more than you need, start with [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink) first; it may be the cleaner fit for your setup.
 
+## What "Extended" Means
+
+This fork keeps the same Home Assistant domain (`familylink`) and install path (`custom_components/familylink`) as [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink). It is intended as a replacement for that integration, not something to install side-by-side.
+
+Compared with the original project, this fork focuses on:
+
+- Recurring bedtime schedule editing with `familylink.set_bedtime_schedule`, so you can change the weekly bedtime plan from Home Assistant instead of editing it in the Family Link app.
+- Recurring daily-limit schedule editing with `familylink.set_daily_limit_schedule`, so automations or dashboards can update weekday limits without touching each day manually in Google Family Link.
+- Schedule sensors for bedtime, school time, and daily limits, so dashboards can show the current weekly plan, enabled days, and today's schedule value.
+- Daily-limit schedule parsing and readback, so the weekly screen-time limit plan is visible in Home Assistant instead of only the current effective value.
+- Timezone-aware schedule calculations through optional `schedule_timezone`, so "today" is evaluated against the child/device schedule timezone instead of accidentally using the wrong day around midnight or across timezones.
+- Richer bedtime readback attributes, so you can tell whether today's effective bedtime comes from the recurring weekly schedule or from a one-day override.
+- Hardened standalone auth-container behavior, so `/api/cookies` is protected by default and the container shuts down more cleanly when restarted or stopped.
+
+App-control services and optional GPS location tracking already exist in the original project, so they are not listed here as fork-specific extensions.
+
 ## 🚨 Important Disclaimer
 
 This integration uses unofficial, reverse-engineered Google Family Link API endpoints. **Use at your own risk**. This may violate Google's Terms of Service and could result in account suspension. This project is not affiliated with, endorsed by, or connected to Google LLC.
