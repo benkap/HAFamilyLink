@@ -35,7 +35,7 @@ jobs:
         run: python scripts/check_versions.py
 
       - name: Run tests
-        run: python -m pytest --cov=custom_components.familylink --cov-report=term-missing --cov-report=xml
+        run: python -m pytest --cov=custom_components.familylink --cov-report=term-missing --cov-report=xml --cov-fail-under=100
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4

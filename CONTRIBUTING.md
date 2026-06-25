@@ -27,7 +27,7 @@ Run the test suite:
 Useful checks before opening a pull request:
 
 ```bash
-.venv/bin/python -m pytest --cov=custom_components.familylink --cov-report=term-missing --cov-report=xml
+.venv/bin/python -m pytest --cov=custom_components.familylink --cov-report=term-missing --cov-report=xml --cov-fail-under=100
 .venv/bin/python -m ruff check .
 .venv/bin/python -m compileall -q custom_components/familylink familylink-playwright/app tests
 git diff --check
