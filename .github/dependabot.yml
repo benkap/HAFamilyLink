@@ -45,35 +45,42 @@ updates:
           - "version-update:semver-minor"
 
       # The Home Assistant 2024.3.3 test harness is resolver-sensitive.
-      # Allow patch bumps, but keep major/minor moves explicit and reviewed.
+      # Move these pins together only after an explicit harness upgrade.
       - dependency-name: "pytest"
         update-types:
-          - "version-update:semver-major"
+          - "version-update:semver-patch"
           - "version-update:semver-minor"
+          - "version-update:semver-major"
       - dependency-name: "pytest-asyncio"
         update-types:
-          - "version-update:semver-major"
+          - "version-update:semver-patch"
           - "version-update:semver-minor"
+          - "version-update:semver-major"
       - dependency-name: "pytest-cov"
         update-types:
-          - "version-update:semver-major"
+          - "version-update:semver-patch"
           - "version-update:semver-minor"
+          - "version-update:semver-major"
       - dependency-name: "pytest-homeassistant-custom-component"
         update-types:
-          - "version-update:semver-major"
+          - "version-update:semver-patch"
           - "version-update:semver-minor"
+          - "version-update:semver-major"
       - dependency-name: "coverage"
         update-types:
-          - "version-update:semver-major"
+          - "version-update:semver-patch"
           - "version-update:semver-minor"
+          - "version-update:semver-major"
       - dependency-name: "habluetooth"
         update-types:
-          - "version-update:semver-major"
+          - "version-update:semver-patch"
           - "version-update:semver-minor"
+          - "version-update:semver-major"
       - dependency-name: "bluetooth-data-tools"
         update-types:
-          - "version-update:semver-major"
+          - "version-update:semver-patch"
           - "version-update:semver-minor"
+          - "version-update:semver-major"
 
   - package-ecosystem: "docker"
     directory: "/familylink-playwright"
