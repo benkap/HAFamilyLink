@@ -126,6 +126,10 @@ while [ "$#" -gt 0 ]; do
             shift
             PLATFORMS="${1:?missing value for --platforms}"
             ;;
+        --progress)
+            shift
+            PROGRESS="${1:?missing value for --progress}"
+            ;;
         --addon-only)
             BUILD_ADDON=1
             BUILD_STANDALONE=0
