@@ -12,7 +12,7 @@ Symptoms:
 Fix:
 
 1. Verify the Family Link Auth add-on or standalone auth container is running.
-2. Check the cookies API from the Home Assistant host. If the auth service requires a key, include it: `curl -H 'X-API-Key: <key>' http://localhost:8099/api/cookies`
+2. Check the cookies API from the Home Assistant host with the auth key: `curl -H 'X-API-Key: <key>' http://localhost:8099/api/cookies`
 3. For add-on file fallback, check that `/share/familylink/cookies.enc` and `/share/familylink/.key` exist.
 4. Restart the auth service and authenticate again.
 5. Reload the integration in Home Assistant.
@@ -90,5 +90,5 @@ Fix:
 2. Confirm port `8099` is reachable from the Home Assistant container or host.
 3. Read the generated key from the auth container data directory, usually `./data/api_key`.
 4. Use the auth service URL that is valid from Home Assistant's network, not just your laptop.
-5. Append the key to the integration URL as `?api_key=<key>` when required.
+5. Append the key to the integration URL as `?api_key=<key>`.
 6. See [Docker Standalone Guide](DOCKER_STANDALONE.md) for the supported flow.
