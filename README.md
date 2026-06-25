@@ -1,4 +1,4 @@
-# <img src="custom_components/familylink/brand/icon.png" alt="Google Family Link Extended icon" width="42"> Google Family Link Extended <img src="https://brands.home-assistant.io/familylink/icon.png" alt="Google Family Link icon" width="30">
+# <img src="https://brands.home-assistant.io/familylink/icon.png" alt="Google Family Link icon" width="30"> Google Family Link Extended <sub><img src="custom_components/familylink/brand/icon.png" alt="Google Family Link Extended icon" width="42"></sub>
 
 [![GitHub Release][releases-shield]][releases]
 [![HACS][hacsbadge]][hacs]
