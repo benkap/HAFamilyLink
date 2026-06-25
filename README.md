@@ -10,6 +10,8 @@ Built from the brilliant work by [@noiwid](https://github.com/noiwid), this fork
 
 This integration uses unofficial, reverse-engineered Google Family Link API endpoints. **Use at your own risk**. This may violate Google's Terms of Service and could result in account suspension. This project is not affiliated with, endorsed by, or connected to Google LLC.
 
+This fork's added controls and sensors are built the same way: by observing and reverse-engineering Google's undocumented Family Link behavior. They work against the current API shape, but Google can change or remove that behavior without notice, so any feature here may break or need updates.
+
 ## ✨ Features
 
 ### 📱 Device Control
