@@ -22,9 +22,10 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 - **Bedtime Control** - Enable/disable bedtime (downtime) restrictions
 - **Set Bedtime Schedule** - Modify recurring bedtime start/end times for any weekday
 - **Daily Limit Control** - Enable/disable daily screen time limits (0-1440 minutes)
+- **Today Overrides** - Apply one-day bedtime and daily limit changes without editing the weekly schedule
 - **Set Daily Limit Schedule** - Modify recurring daily limit minutes for any weekday
 - **Time Bonuses** - Add extra time (15min, 30min, 60min) or cancel active bonuses
-- **Smart Detection** - Automatically detects when device is in bedtime and, when available, school time windows
+- **Smart Detection** - Reads bedtime and school time windows from Google and exposes active-state sensors when that data is available
 - **Schedule Visibility** - View bedtime, school time, and daily limit schedules in sensor attributes
 
 ### 📊 Screen Time Monitoring
@@ -35,11 +36,12 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 - **Top 10 Apps** - Monitor most-used apps with detailed usage statistics
 - **App Breakdown** - Per-application usage breakdown
 
-### 📲 App Visibility
+### 📲 App Visibility and Control
 - **Installed Apps Count** - Total number of apps on supervised devices
 - **Blocked Apps** - List and count of blocked/hidden apps
 - **Apps with Time Limits** - Track apps with usage restrictions
 - **App Details** - Package names, titles, and limit information
+- **App Control Services** - Block/unblock apps by package name, set per-app daily limits, remove app limits, or mark apps as unlimited
 
 ### 📍 GPS Location Tracking (Optional)
 - **Device Tracker** - Track your child's location via `device_tracker` entity
@@ -58,13 +60,12 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 
 ## 🚧 Limitations / Not Currently Supported
 
-This fork focuses on the controls I actually use at home. It currently does not support:
+Based on the current code, this fork does not currently provide:
 
-- Daily limit "Today" overrides; I use bonus time for one-off changes instead
-- Downtime "Tonight" overrides; I change the recurring weekly bedtime schedule instead
-- School time changes; school time data may still appear as read-only status/schedule information when Google returns it
-- App approval and app policy workflows, including allowed apps, parent approvals, unlimited apps, app limits, and app blocking
+- Weekly school time schedule editing; school time can be read and toggled for today, but recurring school time schedule writes are not implemented
+- Parent approval / app install approval workflows
 - Website allowlists or blocklists
+- A built-in app picker for control services; app control requires Android package names
 
 ## 📋 Available Entities
 
@@ -93,6 +94,7 @@ This fork focuses on the controls I actually use at home. It currently does not 
 
 #### Switches (Global Controls)
 - `switch.<child>_bedtime` - Enable/disable bedtime restrictions
+- `switch.<child>_school_time` - Enable/disable school time for today
 - `switch.<child>_daily_limit` - Enable/disable daily screen time limit
 
 #### Schedule Sensors
@@ -102,11 +104,20 @@ This fork focuses on the controls I actually use at home. It currently does not 
   - Attributes: `enabled`, `enabled_days`, `schedule`, `today`, `schedule_today_key`, `monday` through `sunday`
 
 #### Schedule Services
+- `familylink.set_bedtime` - Apply a one-day bedtime override; defaults to today when no day is provided
+- `familylink.set_daily_limit` - Apply today's daily time limit override for a device
 - `familylink.set_bedtime_schedule` - Update a recurring bedtime weekday window and enabled state
 - `familylink.set_daily_limit_schedule` - Update recurring daily limit minutes and enabled state for one weekday
 - School time schedules are exposed read-only through `sensor.<child>_school_time_schedule`. This fork's recurring schedule write work focuses on bedtime and daily limits; it does not implement weekly school time schedule editing.
-- One-day daily limit "Today" and downtime "Tonight" overrides are intentionally not supported; use bonus time or recurring schedule edits instead.
 - Schedule day calculations use the optional `schedule_timezone` setting when provided. Leave it blank to use the child's device timezone from Google when available, then fall back to Home Assistant's timezone.
+
+#### App Control Services
+- `familylink.block_app` - Block an app by Android package name
+- `familylink.unblock_app` - Remove app restrictions by Android package name
+- `familylink.set_app_daily_limit` - Set a per-app daily limit, remove the app limit, block for the day, or mark the app as unlimited
+- `familylink.block_device_for_school` - Block all apps except essential apps and an optional whitelist
+- `familylink.unblock_all_apps` - Remove app blocks created by app-control services
+- These services need Android package names such as `com.youtube.android`. You can find package names in app sensor attributes like `sensor.<child>_blocked_apps`, `sensor.<child>_apps_with_time_limits`, `sensor.<child>_apps_without_limits`, `sensor.<child>_always_allowed_apps`, and `sensor.<child>_top_app_1` through `sensor.<child>_top_app_10`.
 
 ### Per-Device Entities
 
@@ -143,6 +154,8 @@ This fork focuses on the controls I actually use at home. It currently does not 
 - `sensor.<child>_installed_apps` - Number of installed apps
 - `sensor.<child>_blocked_apps` - Number and list of blocked apps
 - `sensor.<child>_apps_with_time_limits` - Apps with usage restrictions
+- `sensor.<child>_apps_without_limits` - Apps that follow device limits
+- `sensor.<child>_always_allowed_apps` - Apps marked as unlimited/always allowed
 - `sensor.<child>_top_app_1` through `sensor.<child>_top_app_10` - Top 10 most-used apps
 - `sensor.<child>_device_count` - Number of supervised devices
 - `sensor.<child>_child_info` - Supervised child's profile information
@@ -246,9 +259,10 @@ This integration uses reverse-engineered Google Family Link API endpoints:
 | `/families/mine/members` | Family member information |
 | `/families/mine/location/{userId}` | Child GPS location |
 | `/people/{userId}/apps` | Installed apps list |
+| `/people/{userId}/apps:updateRestrictions` | Block/unblock apps, set per-app limits, remove app limits, or set apps as unlimited |
 | `/people/{userId}/appsandusage` | App usage data |
 | `/people/{userId}/devices` | Device metadata, including device timezone when exposed |
-| `/people/{userId}/timeLimitOverrides:batchCreate` | Lock/unlock devices, add time bonuses |
+| `/people/{userId}/timeLimitOverrides:batchCreate` | Lock/unlock devices, add time bonuses, and apply today-only time-limit overrides |
 | `/people/{userId}/timeLimitOverride/{id}?$httpMethod=DELETE` | Cancel time bonuses |
 | `/people/{userId}/appliedTimeLimits` | Current time limits and lock states |
 | `/people/{userId}/timeLimit` | Time limit rules and schedules |
