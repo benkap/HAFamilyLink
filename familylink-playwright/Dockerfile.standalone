@@ -31,8 +31,9 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip3 install --break-system-packages -r requirements.txt
 
-# Install Chromium for Playwright. Debian-based image supports ARM64.
-RUN python3 -m playwright install --with-deps chromium
+# Install headed Chromium for Playwright. The auth flow uses Xvfb/noVNC, so
+# the separate Chromium headless shell is unused image weight.
+RUN python3 -m playwright install --with-deps --no-shell chromium
 
 # Copy application code
 COPY app/ /app/app/
