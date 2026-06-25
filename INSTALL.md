@@ -1,7 +1,7 @@
 
 # Installation Guide 🚀
 
-Google Family Link Integration for Home Assistant 👨‍👩‍👧‍👦
+Google Family Link Extended Integration for Home Assistant 👨‍👩‍👧‍👦
 
 ---
 
@@ -145,7 +145,7 @@ You can install the integration via HACS (recommended) or manually.
 5. Click **Add**  
 6. Close the custom repositories dialog  
 7. Click **+ Explore & Download Repositories**  
-8. Search for **"Google Family Link"**  
+8. Search for **"Google Family Link Extended"**
 9. Click on the integration > **Download**  
 10. Select the latest version > **Download**  
 11. **Restart Home Assistant**  
@@ -185,7 +185,7 @@ You can install the integration via HACS (recommended) or manually.
 
 1. Navigate to **Settings** > **Devices & Services**  
 2. Click **+ Add Integration** (bottom right)  
-3. Search for **"Google Family Link"**  
+3. Search for **"Google Family Link Extended"**
 4. Click on the integration
 
 ### 3.2 Complete the Configuration Flow ✅
@@ -195,7 +195,7 @@ You can install the integration via HACS (recommended) or manually.
    - Click **Submit**
 
 2. **Integration Name** (optional) ✍️
-   - Enter a custom name or leave default: "Google Family Link"
+   - Enter a custom name or leave default: "Google Family Link Extended"
    - Optionally adjust update interval and timeout settings
    - **GPS Location Tracking** (optional): Enable to track your child's location
      - ⚠️ Warning: Each location poll may send a notification to the child's device
@@ -216,7 +216,7 @@ You can install the integration via HACS (recommended) or manually.
 ### 3.3 Verify Integration Setup 🔎
 
 1. Go to **Settings** > **Devices & Services**
-2. Find **"Google Family Link"** in the list
+2. Find **"Google Family Link Extended"** in the list
 3. You should see:
    - Integration badge (blue/green) 🟦🟩
    - Number of devices
@@ -242,7 +242,7 @@ To verify cookies were loaded successfully, check the Home Assistant logs:
 
 ### Check Entities 🧾
 
-1. Navigate to **Settings** > **Devices & Services** > **Google Family Link**  
+1. Navigate to **Settings** > **Devices & Services** > **Google Family Link Extended**
 2. Click on the integration to see all entities  
 3. You should see:
 
@@ -387,7 +387,7 @@ Cookies expire periodically. To re-authenticate:
 
 ### Remove Integration ❌
 
-1. Settings > Devices & Services > Google Family Link  
+1. Settings > Devices & Services > Google Family Link Extended
 2. Click **...** > **Delete**  
 3. Confirm deletion
 

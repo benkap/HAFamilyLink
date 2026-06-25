@@ -21,7 +21,7 @@
 	"config": {
 		"step": {
 			"user": {
-				"title": "Google Family Link",
+				"title": "Google Family Link Extended",
 				"description": "Choose how to connect to the Family Link Auth service.",
 				"menu_options": {
 					"auto_detect": "Auto-detect (add-on or local file)",

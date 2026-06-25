@@ -5,7 +5,7 @@ from typing import Final
 
 # Integration constants
 DOMAIN: Final = "familylink"
-INTEGRATION_NAME: Final = "Google Family Link"
+INTEGRATION_NAME: Final = "Google Family Link Extended"
 
 # Configuration
 CONF_COOKIE_FILE: Final = "cookie_file"

@@ -1,10 +1,26 @@
-# <img src="https://brands.home-assistant.io/familylink/icon.png" alt="Google Family Link" width="30" > Google Family Link Home Assistant Integration
+# <img src="https://brands.home-assistant.io/familylink/icon.png" alt="Google Family Link Extended" width="30" > Google Family Link Extended Home Assistant Integration
 
 [![GitHub Release][releases-shield]][releases]
 [![HACS][hacsbadge]][hacs]
 [![License][license-shield]][license]
 
 Built from the brilliant work by [@noiwid](https://github.com/noiwid), this fork adds the Family Link API coverage and opinionated tweaks I needed for my own home. If that sounds like more than you need, start with [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink) first; it may be the cleaner fit for your setup.
+
+## What "Extended" Means
+
+This fork keeps the same Home Assistant domain (`familylink`) and install path (`custom_components/familylink`) as [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink). It is intended as a replacement for that integration, not something to install side-by-side.
+
+Compared with the original project, this fork focuses on:
+
+- Recurring bedtime schedule editing with `familylink.set_bedtime_schedule`, so you can change the weekly bedtime plan from Home Assistant instead of editing it in the Family Link app.
+- Recurring daily-limit schedule editing with `familylink.set_daily_limit_schedule`, so automations or dashboards can update weekday limits without touching each day manually in Google Family Link.
+- Schedule sensors for bedtime, school time, and daily limits, so dashboards can show the current weekly plan, enabled days, and today's schedule value.
+- Daily-limit schedule parsing and readback, so the weekly screen-time limit plan is visible in Home Assistant instead of only the current effective value.
+- Timezone-aware schedule calculations through optional `schedule_timezone`, so "today" is evaluated against the child/device schedule timezone instead of accidentally using the wrong day around midnight or across timezones.
+- Richer bedtime readback attributes, so you can tell whether today's effective bedtime comes from the recurring weekly schedule or from a one-day override.
+- Hardened standalone auth-container behavior, so `/api/cookies` is protected by default and the container shuts down more cleanly when restarted or stopped.
+
+App-control services and optional GPS location tracking already exist in the original project, so they are not listed here as fork-specific extensions.
 
 ## 🚨 Important Disclaimer
 
@@ -236,7 +252,7 @@ This integration is configured entirely through the Home Assistant UI (Config Fl
 1. Go to **Settings → Devices & Services → Add Integration**
 2. Search for "**Family Link**" and select it
 3. Configure the following options in the setup wizard:
-   - **Name**: Display name for the integration (default: "Google Family Link")
+   - **Name**: Display name for the integration (default: "Google Family Link Extended")
    - **Update Interval**: How often to fetch data, in seconds (default: 300, range: 30-3600)
    - **Timeout**: API request timeout in seconds (default: 30)
    - **Enable GPS Location Tracking**: Opt-in for device location tracking (default: disabled)
