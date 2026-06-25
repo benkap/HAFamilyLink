@@ -34,7 +34,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Install headed Chromium for Playwright. The auth flow uses Xvfb/noVNC, so
 # the separate Chromium headless shell is unused image weight.
-RUN python3 -m playwright install --with-deps --no-shell chromium
+RUN python3 -m playwright install --with-deps --no-shell chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy application code
 COPY app/ /app/app/
