@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 ARG BUILD_FROM=ghcr.io/hassio-addons/debian-base:7.3.3
 FROM ${BUILD_FROM}
 
@@ -6,7 +8,9 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install system dependencies shared by the add-on and standalone images.
 COPY scripts/install-runtime-deps.sh /tmp/install-runtime-deps.sh
-RUN /tmp/install-runtime-deps.sh \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    KEEP_APT_CACHE=1 /tmp/install-runtime-deps.sh \
     && rm /tmp/install-runtime-deps.sh
 
 # Set environment variables for Playwright
@@ -19,7 +23,8 @@ WORKDIR /app
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip3 install --break-system-packages -r requirements.txt
 
 # Install Chromium for Playwright. Debian-based images support ARM64.
 RUN python3 -m playwright install --with-deps chromium

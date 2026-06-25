@@ -26,18 +26,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-addon:
-    name: Docker addon image
+  build:
+    name: Docker ${{ matrix.image.label }} (${{ matrix.platform }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - id: addon
+            label: add-on image
+            file: ./familylink-playwright/Dockerfile
+            cache_scope: addon
+            summary_title: Home Assistant add-on image
+            tags: |
+              type=ref,event=branch
+              type=ref,event=pr
+              type=semver,pattern={{version}}
+              type=semver,pattern={{major}}.{{minor}}
+              type=semver,pattern={{major}}
+              type=raw,value=latest,enable={{is_default_branch}}
+          - id: standalone
+            label: standalone image
+            file: ./familylink-playwright/Dockerfile.standalone
+            cache_scope: standalone
+            summary_title: Standalone Docker image
+            tags: |
+              type=ref,event=branch,suffix=-standalone
+              type=ref,event=pr,suffix=-standalone
+              type=semver,pattern={{version}},suffix=-standalone
+              type=semver,pattern={{major}}.{{minor}},suffix=-standalone
+              type=raw,value=standalone,enable=true
+        platform:
+          - linux/amd64
+          - linux/arm64
+        include:
+          - platform: linux/amd64
+            platform_pair: linux-amd64
+          - platform: linux/arm64
+            platform_pair: linux-arm64
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up QEMU
+        if: matrix.platform == 'linux/arm64'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
@@ -56,60 +93,111 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
+          tags: ${{ matrix.image.tags }}
 
-      - name: Build and push image
+      - name: Build image
+        if: github.event_name == 'pull_request'
         uses: docker/build-push-action@v5
         with:
           context: ./familylink-playwright
-          file: ./familylink-playwright/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          file: ${{ matrix.image.file }}
+          platforms: ${{ matrix.platform }}
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=addon
-          cache-to: type=gha,mode=max,scope=addon
+          cache-from: type=gha,scope=${{ matrix.image.cache_scope }}-${{ matrix.platform_pair }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.cache_scope }}-${{ matrix.platform_pair }}
+
+      - name: Build and push digest
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./familylink-playwright
+          file: ${{ matrix.image.file }}
+          platforms: ${{ matrix.platform }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image.cache_scope }}-${{ matrix.platform_pair }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.cache_scope }}-${{ matrix.platform_pair }}
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image.id }}-${{ matrix.platform_pair }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Summary
         run: |
           {
-            echo "## Home Assistant add-on image"
+            echo "## ${{ matrix.image.summary_title }} (${{ matrix.platform }})"
             echo ""
             if [ "${{ github.event_name }}" = "pull_request" ]; then
               echo "Pull request build only; image was not published."
             else
-              echo "Image was published."
+              echo "Platform digest was published and will be attached to a manifest."
             fi
             echo ""
             echo "Tags:"
             echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n' | sed 's/^/- /'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  build-standalone:
-    name: Docker standalone image
+  merge:
+    name: Docker ${{ matrix.image.label }} manifest
+    if: github.event_name != 'pull_request'
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - id: addon
+            label: add-on image
+            summary_title: Home Assistant add-on image
+            tags: |
+              type=ref,event=branch
+              type=ref,event=pr
+              type=semver,pattern={{version}}
+              type=semver,pattern={{major}}.{{minor}}
+              type=semver,pattern={{major}}
+              type=raw,value=latest,enable={{is_default_branch}}
+          - id: standalone
+            label: standalone image
+            summary_title: Standalone Docker image
+            tags: |
+              type=ref,event=branch,suffix=-standalone
+              type=ref,event=pr,suffix=-standalone
+              type=semver,pattern={{version}},suffix=-standalone
+              type=semver,pattern={{major}}.{{minor}},suffix=-standalone
+              type=raw,value=standalone,enable=true
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.image.id }}-*
+          merge-multiple: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -121,35 +209,21 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch,suffix=-standalone
-            type=ref,event=pr,suffix=-standalone
-            type=semver,pattern={{version}},suffix=-standalone
-            type=semver,pattern={{major}}.{{minor}},suffix=-standalone
-            type=raw,value=standalone,enable=true
+          tags: ${{ matrix.image.tags }}
 
-      - name: Build and push image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./familylink-playwright
-          file: ./familylink-playwright/Dockerfile.standalone
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=standalone
-          cache-to: type=gha,mode=max,scope=standalone
+      - name: Create and push manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
       - name: Summary
         run: |
           {
-            echo "## Standalone Docker image"
+            echo "## ${{ matrix.image.summary_title }} manifest"
             echo ""
-            if [ "${{ github.event_name }}" = "pull_request" ]; then
-              echo "Pull request build only; image was not published."
-            else
-              echo "Image was published."
-            fi
+            echo "Multi-platform manifest was published."
             echo ""
             echo "Tags:"
             echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n' | sed 's/^/- /'

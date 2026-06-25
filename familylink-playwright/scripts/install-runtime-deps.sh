@@ -14,5 +14,8 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     fluxbox \
     xterm \
     dbus
-apt-get clean
-rm -rf /var/lib/apt/lists/*
+
+if [ "${KEEP_APT_CACHE:-0}" != "1" ]; then
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+fi
