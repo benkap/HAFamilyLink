@@ -6,6 +6,6 @@ pre-commit==4.6.0
 ruff==0.15.18
 
 # Keep the Home Assistant 2024.3.3 test harness resolver stable.
-coverage==7.4.3
+coverage==7.4.4
 habluetooth==6.1.0
 bluetooth-data-tools==1.28.4
