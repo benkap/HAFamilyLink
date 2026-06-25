@@ -1,4 +1,4 @@
-# <img src="https://brands.home-assistant.io/familylink/icon.png" alt="Google Family Link Extended" width="30" > Google Family Link Extended
+# <img src="custom_components/familylink/brand/icon.png" alt="Google Family Link Extended icon" width="30"> Google Family Link Extended <img src="https://brands.home-assistant.io/familylink/icon.png" alt="Google Family Link icon" width="30">
 
 [![GitHub Release][releases-shield]][releases]
 [![HACS][hacsbadge]][hacs]
@@ -8,7 +8,19 @@ Unofficial Home Assistant integration for Google Family Link.
 
 This fork builds on [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink) and keeps the same Home Assistant domain (`familylink`). It is a replacement for the original integration, not something to install beside it.
 
-If you only need the original behavior, start with [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink). This fork is for people who want more schedule visibility, schedule editing, app controls, and standalone auth hardening.
+> If you only need the original behavior, start with [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink). This fork is for people who want more schedule visibility, schedule editing, app controls, and standalone auth hardening.
+
+## Docs
+
+- [Installation Guide](INSTALL.md)
+- [Docker Standalone Guide](DOCKER_STANDALONE.md)
+- [Services](SERVICES.md)
+- [Example Automations](AUTOMATIONS.md)
+- [Advanced Reference](REFERENCE.md)
+- [Architecture](ARCHITECTURE.md)
+- [Troubleshooting](TROUBLESHOOTING.md)
+- [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## Install And Configure
 
@@ -34,7 +46,7 @@ Run the auth service as a standalone Docker container, then point the integratio
 
 Configuration is done in the Home Assistant UI. YAML configuration is not supported.
 
-Main options:
+**Main options:**
 
 - **Name**: integration display name
 - **Update interval**: how often to fetch data; default is 300 seconds
@@ -44,7 +56,7 @@ Main options:
 
 To change options later, open **Settings > Devices & Services**, find Family Link, and click **Configure**.
 
-## Important
+## ⚠️ Important
 
 This project uses unofficial, reverse-engineered Google Family Link endpoints. Use it at your own risk. Google can change or remove this behavior without notice, and this project is not affiliated with Google.
 
@@ -59,8 +71,6 @@ GPS location tracking is opt-in. Each location poll may notify the child's devic
 - Timezone-aware schedule calculations through `schedule_timezone`
 - Better bedtime readback attributes for weekly schedules vs. one-day overrides
 - Hardened standalone auth-container behavior
-
-App-control services and optional GPS location tracking already exist in the original project; this fork keeps improving around them.
 
 ## Features
 
@@ -85,23 +95,10 @@ Not currently supported:
 - Website allowlists or blocklists
 - A built-in app picker; app-control services need Android package names
 
-## Docs
-
-- [Installation Guide](INSTALL.md)
-- [Docker Standalone Guide](DOCKER_STANDALONE.md)
-- [Services](SERVICES.md)
-- [Example Automations](AUTOMATIONS.md)
-- [Advanced Reference](REFERENCE.md)
-- [Architecture](ARCHITECTURE.md)
-- [Troubleshooting](TROUBLESHOOTING.md)
-- [Changelog](CHANGELOG.md)
-- [Contributing](CONTRIBUTING.md)
-
 ## Support
 
 - [Report an issue](https://github.com/benkap/HAFamilyLink/issues)
 - [Request a feature](https://github.com/benkap/HAFamilyLink/issues/new)
-- [Discussions](https://github.com/benkap/HAFamilyLink/discussions)
 
 ## Credits
 
@@ -115,7 +112,7 @@ Not currently supported:
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE).
 
-## Legal
+## ⚠️ Legal
 
 This is an unofficial integration and is not affiliated with, endorsed by, or connected to Google LLC. All product names, logos, and brands are property of their respective owners.
 

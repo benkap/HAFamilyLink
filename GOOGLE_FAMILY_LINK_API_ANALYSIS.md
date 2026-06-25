@@ -2,7 +2,7 @@
 # Google Family Link – API Analysis (consolidated)
 
 > **Goal**: document observed endpoints, useful capabilities, **exact response structure** (particularly `timeLimit` & `appliedTimeLimits`), and provide a **robust parsing guide** + test scenarios.
-> **Context**: deductions confirmed from real captures (logs/dumps) and the Family Link interface. This document targets _client_ exploitation (reading), not complete reverse engineering of the proprietary protocol.
+> **Context**: deductions confirmed from sanitized captures (logs/dumps) and the Family Link interface. This document targets _client_ exploitation (reading), not complete reverse engineering of the proprietary protocol.
 
 ---
 
@@ -487,27 +487,27 @@ Google Family Link supports 4 distinct states for per-app restrictions:
 
 **Set 60 minutes daily limit for TikTok:**
 ```json
-["116774149781348048793", [[["com.zhiliaoapp.musically"], null, [60, 1]]]]
+["childId", [[["com.zhiliaoapp.musically"], null, [60, 1]]]]
 ```
 
 **Set limit to 0 minutes (completely blocked for today):**
 ```json
-["116774149781348048793", [[["com.zhiliaoapp.musically"], null, [0, 1]]]]
+["childId", [[["com.zhiliaoapp.musically"], null, [0, 1]]]]
 ```
 
 **Disable app limit (app follows device limits):**
 ```json
-["116774149781348048793", [[["com.zhiliaoapp.musically"]]]]
+["childId", [[["com.zhiliaoapp.musically"]]]]
 ```
 
 **Set app to unlimited time (ignores device limits):**
 ```json
-["116774149781348048793", [[["com.zhiliaoapp.musically"], null, null, [1]]]]
+["childId", [[["com.zhiliaoapp.musically"], null, null, [1]]]]
 ```
 
 ### Response
 ```json
-[[null, "1767881631499"]]
+[[null, "transaction_id_or_timestamp"]]
 ```
 Returns a transaction ID/timestamp on success.
 
@@ -523,7 +523,7 @@ Returns a transaction ID/timestamp on success.
 ---
 
 ## 📣 Notifications (`notificationElements`)
-- E.g. "New app installed" with **timestamp** (`["1763148569", 431000000]`) and **links** to the concerned app (`/member/{childId}/app/{package}`).
+- E.g. "New app installed" with **timestamp** (`["timestamp_seconds", nanos]`) and **links** to the concerned app (`/member/{childId}/app/{package}`).
 - `clientCapabilities=CAPABILITY_TIMEZONE` + `userTimeZone=Europe/Paris` recommended for local timestamps.
 
 ---
@@ -599,4 +599,4 @@ Returns a transaction ID/timestamp on success.
 
 ---
 
-*Last update: generated from analysis of concrete dumps and Family Link UI. PRs welcome if you observe variants.*
+*Last update: based on sanitized endpoint captures and Family Link UI observations. PRs welcome if you observe variants.*
