@@ -42,8 +42,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build image
-        run: docker build -t ${{ matrix.image.tag }}:${{ github.sha }} -f ${{ matrix.image.dockerfile }} familylink-playwright
+        uses: docker/build-push-action@v5
+        with:
+          context: familylink-playwright
+          file: ${{ matrix.image.dockerfile }}
+          load: true
+          tags: ${{ matrix.image.tag }}:${{ github.sha }}
+          cache-from: type=gha,scope=trivy-${{ matrix.image.tag }}
+          cache-to: type=gha,mode=max,scope=trivy-${{ matrix.image.tag }}
 
       - name: Scan image
         uses: aquasecurity/trivy-action@v0.36.0
