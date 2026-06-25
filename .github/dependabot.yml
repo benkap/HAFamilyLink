@@ -19,10 +19,6 @@ updates:
           - "patch"
         group-by: "dependency-name"
     ignore:
-      - dependency-name: "aiohttp"
-        update-types:
-          - "version-update:semver-major"
-          - "version-update:semver-minor"
       - dependency-name: "cryptography"
         update-types:
           - "version-update:semver-major"
