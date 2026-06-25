@@ -181,7 +181,7 @@ The add-on uses Playwright with Chromium running on a virtual display (Xvfb):
    - Cookies are encrypted and stored in `/share/familylink/cookies.enc`
    - Browser resources are cleaned up
 
-**Why noVNC is needed**: The browser runs headless inside the Docker container. noVNC allows you to see and interact with it remotely through your web browser.
+**Why noVNC is needed**: Chromium runs as a headed browser on a virtual Xvfb display inside the container. noVNC lets you see and interact with that browser through your web browser.
 
 ## Troubleshooting
 
