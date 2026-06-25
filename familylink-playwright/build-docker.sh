@@ -8,6 +8,7 @@ REGISTRY="${REGISTRY:-ghcr.io}"
 IMAGE_OWNER="${IMAGE_OWNER:-benkap}"
 IMAGE_NAME="${IMAGE_NAME:-familylink-auth}"
 PLATFORMS="${PLATFORMS:-}"
+PROGRESS="${PROGRESS:-auto}"
 PUSH=0
 BUILD_ADDON=1
 BUILD_STANDALONE=1
@@ -24,6 +25,7 @@ Usage:
 Options:
   --push             Push images to the registry instead of loading locally.
   --platforms LIST   Build platform list, for example linux/amd64,linux/arm64.
+  --progress MODE    Docker build progress output. Default: auto.
   --addon-only       Build only the Home Assistant add-on image.
   --standalone-only  Build only the standalone Docker image.
   -h, --help         Show this help.
@@ -33,6 +35,7 @@ Environment:
   IMAGE_OWNER        Registry owner/org. Default: benkap
   IMAGE_NAME         Image name. Default: familylink-auth
   PLATFORMS          Default platform list.
+  PROGRESS           Docker build progress output. Default: auto.
 
 Examples:
   ./build-docker.sh
@@ -88,9 +91,11 @@ format_bytes() {
     local bytes="$1"
 
     if command -v python3 >/dev/null 2>&1; then
-        python3 -c 'import sys; size=int(sys.argv[1]); print(f"{size / 1024 / 1024:.1f} MiB ({size} bytes)")' "${bytes}"
+        python3 -c 'import sys; size=int(sys.argv[1]); print(f"{size / 1024 / 1024:.1f} MiB")' "${bytes}"
+    elif command -v awk >/dev/null 2>&1; then
+        awk -v size="${bytes}" 'BEGIN { printf "%.1f MiB\n", size / 1024 / 1024 }'
     else
-        echo "${bytes} bytes"
+        echo "${bytes}"
     fi
 }
 
@@ -188,6 +193,7 @@ build_image() {
     echo "  Output: $([ "${PUSH}" -eq 1 ] && echo push || echo local load)"
 
     docker buildx build \
+        --progress "${PROGRESS}" \
         --platform "${PLATFORMS}" \
         -f "${SCRIPT_DIR}/${dockerfile}" \
         "${build_args[@]}" \
