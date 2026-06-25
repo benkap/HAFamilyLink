@@ -39,6 +39,17 @@ If you use pre-commit:
 PRE_COMMIT_HOME=/private/tmp/hafamilylink-pre-commit-cache .venv/bin/python -m pre_commit run --all-files
 ```
 
+## Version Bumps
+
+The Home Assistant integration and the auth container are versioned separately.
+Use the matching bump config, then run the consistency check:
+
+```bash
+.venv/bin/bump-my-version --config-file .bumpversion.integration.toml bump patch
+.venv/bin/bump-my-version --config-file .bumpversion.auth.toml bump patch
+.venv/bin/python scripts/check_versions.py
+```
+
 ## Pull Requests
 
 Please include:
