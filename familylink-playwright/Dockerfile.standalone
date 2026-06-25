@@ -42,9 +42,8 @@ RUN python3 -m playwright install --with-deps --no-shell chromium \
 COPY app/ /app/app/
 
 # Copy standalone startup script and welcome banner helper
-COPY run-standalone.sh /usr/local/bin/run-standalone.sh
-COPY welcome-banner.sh /usr/local/bin/welcome-banner.sh
-RUN chmod +x /usr/local/bin/run-standalone.sh /usr/local/bin/welcome-banner.sh
+COPY --chmod=755 run-standalone.sh /usr/local/bin/run-standalone.sh
+COPY --chmod=755 welcome-banner.sh /usr/local/bin/welcome-banner.sh
 
 # Create necessary directories
 RUN mkdir -p /share/familylink && \

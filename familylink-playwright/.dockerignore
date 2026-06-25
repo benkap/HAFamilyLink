@@ -6,3 +6,6 @@ __pycache__/
 coverage.xml
 data/
 *.log
+*.md
+build-docker.sh
+docker-compose*.yml
