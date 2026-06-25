@@ -66,18 +66,32 @@ jobs:
         include:
           - platform: linux/amd64
             platform_pair: linux-amd64
+            run_on_pr: true
           - platform: linux/arm64
             platform_pair: linux-arm64
+            run_on_pr: false
 
     steps:
+      - name: Skip non-native PR platform
+        if: github.event_name == 'pull_request' && !matrix.run_on_pr
+        run: |
+          {
+            echo "## Docker ${{ matrix.image.label }} (${{ matrix.platform }})"
+            echo ""
+            echo "Skipped on pull requests to keep Docker feedback fast."
+            echo "The arm64 image still builds on main, tags, releases, and manual runs."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout repository
+        if: github.event_name != 'pull_request' || matrix.run_on_pr
         uses: actions/checkout@v4
 
       - name: Set up QEMU
-        if: matrix.platform == 'linux/arm64'
+        if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.platform == 'linux/arm64'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request' || matrix.run_on_pr
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
@@ -89,6 +103,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
+        if: github.event_name != 'pull_request' || matrix.run_on_pr
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -96,7 +111,7 @@ jobs:
           tags: ${{ matrix.image.tags }}
 
       - name: Build image
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.run_on_pr
         uses: docker/build-push-action@v5
         with:
           context: ./familylink-playwright
@@ -139,6 +154,7 @@ jobs:
           retention-days: 1
 
       - name: Summary
+        if: github.event_name != 'pull_request' || matrix.run_on_pr
         run: |
           {
             echo "## ${{ matrix.image.summary_title }} (${{ matrix.platform }})"
