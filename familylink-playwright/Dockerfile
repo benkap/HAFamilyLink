@@ -17,6 +17,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Set working directory
 WORKDIR /app
@@ -24,7 +25,7 @@ WORKDIR /app
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip3 install --break-system-packages -r requirements.txt
+    pip3 install --break-system-packages --no-compile -r requirements.txt
 
 # Install headed Chromium for Playwright. The auth flow uses Xvfb/noVNC, so
 # the separate Chromium headless shell is unused image weight.
@@ -50,7 +51,7 @@ EXPOSE 8099 6080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8099/api/health || exit 1
+    CMD python3 -c "from urllib.request import urlopen; urlopen('http://127.0.0.1:8099/api/health', timeout=5).close()" || exit 1
 
 # Labels
 LABEL \
