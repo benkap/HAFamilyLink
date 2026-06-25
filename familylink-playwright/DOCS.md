@@ -27,7 +27,7 @@ The add-on provides **two methods** for the integration to retrieve cookies:
 
 #### 1. HTTP API (v1.3.0+, Recommended for Docker standalone)
 - **Endpoint**: `GET /api/cookies`
-- **URL**: `http://<addon-ip>:8099/api/cookies`
+- **URL**: `http://<addon-ip>:8099/api/cookies?api_key=<key>` (or send `X-API-Key`)
 - Returns decrypted cookies directly (JSON format)
 - No shared volumes needed
 - **Requires an API key** (v1.7.0+): sent via the `X-API-Key` header or `?api_key=` query parameter. The key is auto-generated on first start and stored in `/share/familylink/api_key`. On HA OS/Supervised the integration reads it automatically from the shared directory; for Docker standalone, append `?api_key=<key>` to the auth URL in the integration setup. You can also force a specific key with the `API_KEY` environment variable.

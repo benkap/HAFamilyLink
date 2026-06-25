@@ -43,9 +43,10 @@ services:
       # Optional: force a specific key for /api/cookies. If unset, the
       # container creates ./data/api_key on first start.
       # - API_KEY=change-me
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
+    # Optional DNS override if your Docker host cannot resolve Google domains.
+    # dns:
+    #   - 8.8.8.8
+    #   - 8.8.4.4
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "familylink-healthcheck"]
@@ -76,8 +77,6 @@ docker run -d \
   -e VNC_PASSWORD=familylink \
   -e LANGUAGE=en-US \
   -e TIMEZONE=Europe/Paris \
-  --dns 8.8.8.8 \
-  --dns 8.8.4.4 \
   --restart unless-stopped \
   ghcr.io/benkap/familylink-auth:standalone
 ```
@@ -108,7 +107,7 @@ Both `linux/amd64` and `linux/arm64` are supported. Docker will automatically pu
 
 ### DNS Configuration
 
-The `dns` entries (`8.8.8.8`, `8.8.4.4`) ensure the container can resolve Google domains correctly. This is especially important if you use Pi-hole or another local DNS that might interfere with Google services.
+The compose example uses Docker's default DNS settings. If your local DNS blocks or rewrites Google login domains, uncomment the optional `dns` entries in the compose file, or add `--dns 8.8.8.8 --dns 8.8.4.4` to the `docker run` command.
 
 ## Authentication
 
@@ -184,8 +183,8 @@ docker rm familylink-auth
 - Verify Home Assistant can reach the Docker host on port `8099`
 
 ### DNS issues (Pi-hole, AdGuard, etc.)
-- The `dns` configuration in the compose file bypasses local DNS for the container
-- If you still have issues, try adding `network_mode: host` (but you'll lose port mapping)
+- Uncomment the optional `dns` entries in the compose file, or add `--dns 8.8.8.8 --dns 8.8.4.4` to the `docker run` command.
+- If you still have issues, try `network_mode: host` (but you'll lose port mapping)
 
 ## Image Tags
 
