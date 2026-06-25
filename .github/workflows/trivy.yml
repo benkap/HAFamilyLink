@@ -24,34 +24,31 @@ concurrency:
 
 jobs:
   scan:
-    name: Docker image vulnerability report
+    name: Docker ${{ matrix.image.label }} vulnerability report
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - label: add-on image
+            dockerfile: familylink-playwright/Dockerfile
+            tag: hafamilylink-auth-addon
+          - label: standalone image
+            dockerfile: familylink-playwright/Dockerfile.standalone
+            tag: hafamilylink-auth-standalone
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build add-on image
-        run: docker build -t hafamilylink-auth-addon:${{ github.sha }} -f familylink-playwright/Dockerfile familylink-playwright
+      - name: Build image
+        run: docker build -t ${{ matrix.image.tag }}:${{ github.sha }} -f ${{ matrix.image.dockerfile }} familylink-playwright
 
-      - name: Scan add-on image
+      - name: Scan image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: hafamilylink-auth-addon:${{ github.sha }}
-          scanners: vuln
-          vuln-type: os,library
-          format: table
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "0"
-
-      - name: Build standalone image
-        run: docker build -t hafamilylink-auth-standalone:${{ github.sha }} -f familylink-playwright/Dockerfile.standalone familylink-playwright
-
-      - name: Scan standalone image
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: hafamilylink-auth-standalone:${{ github.sha }}
+          image-ref: ${{ matrix.image.tag }}:${{ github.sha }}
           scanners: vuln
           vuln-type: os,library
           format: table
