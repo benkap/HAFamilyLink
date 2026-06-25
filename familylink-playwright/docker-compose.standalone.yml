@@ -27,9 +27,10 @@ services:
       # auto-generated on first start in ./data/api_key. The HA integration
       # must use: http://<host>:8099?api_key=<key>
       # - API_KEY=change-me
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
+    # Optional DNS override if your Docker host cannot resolve Google domains.
+    # dns:
+    #   - 8.8.8.8
+    #   - 8.8.4.4
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "familylink-healthcheck"]
