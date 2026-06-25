@@ -1,4 +1,4 @@
-# <img src="custom_components/familylink/brand/icon.png" alt="Google Family Link Extended icon" width="30"> Google Family Link Extended <img src="https://brands.home-assistant.io/familylink/icon.png" alt="Google Family Link icon" width="30">
+# <img src="custom_components/familylink/brand/icon.png" alt="Google Family Link Extended icon" width="42"> Google Family Link Extended <img src="https://brands.home-assistant.io/familylink/icon.png" alt="Google Family Link icon" width="30">
 
 [![GitHub Release][releases-shield]][releases]
 [![HACS][hacsbadge]][hacs]
@@ -12,19 +12,19 @@ This fork builds on [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink
 
 ## Docs
 
-- [Installation Guide](INSTALL.md)
-- [Docker Standalone Guide](DOCKER_STANDALONE.md)
-- [Services](SERVICES.md)
-- [Example Automations](AUTOMATIONS.md)
-- [Advanced Reference](REFERENCE.md)
-- [Architecture](ARCHITECTURE.md)
-- [Troubleshooting](TROUBLESHOOTING.md)
+- [Installation Guide](docs/INSTALL.md)
+- [Docker Standalone Guide](docs/DOCKER_STANDALONE.md)
+- [Services](docs/SERVICES.md)
+- [Example Automations](docs/AUTOMATIONS.md)
+- [Advanced Reference](docs/REFERENCE.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Install And Configure
 
-For the full walkthrough, use the [Installation Guide](INSTALL.md).
+For the full walkthrough, use the [Installation Guide](docs/INSTALL.md).
 
 ### Home Assistant OS / Supervised
 
@@ -40,7 +40,7 @@ For the full walkthrough, use the [Installation Guide](INSTALL.md).
 
 ### Home Assistant Core / Container
 
-Run the auth service as a standalone Docker container, then point the integration at it. If the container generates an API key, append it to the auth URL as `?api_key=<key>`. See the [Docker Standalone Guide](DOCKER_STANDALONE.md).
+Run the auth service as a standalone Docker container, then point the integration at it. If the container generates an API key, append it to the auth URL as `?api_key=<key>`. See the [Docker Standalone Guide](docs/DOCKER_STANDALONE.md).
 
 ### Configuration
 
@@ -84,7 +84,7 @@ GPS location tracking is opt-in. Each location poll may notify the child's devic
 - Optionally track GPS location and battery level from the Family Link location source device
 - Expose supervised child, device, and family profile details
 
-For the full entity list, see [Advanced Reference](REFERENCE.md).
+For the full entity list, see [Advanced Reference](docs/REFERENCE.md).
 
 ## Limits
 

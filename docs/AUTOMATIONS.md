@@ -10,12 +10,12 @@ A dashboard like this can put the main Family Link actions in one place: current
 
 | Main status | Actions and details |
 | --- | --- |
-| <img src="assets/images/1_dashboard_locked.png" alt="Dashboard showing a locked tablet, today's limit, today's schedule, and temporary controls" width="420"> | <img src="assets/images/2_dashboard_bonus_confirmation.png" alt="Dashboard confirmation dialog for adding bonus time" width="420"> |
-| <img src="assets/images/3_dashboard_unlocked_bonus_active.png" alt="Dashboard showing an unlocked tablet with an active bonus" width="420"> | <img src="assets/images/6_dashboard_details_and_toggles.png" alt="Dashboard details panel with sync status, metrics, and admin toggles" width="420"> |
+| <img src="../assets/images/1_dashboard_locked.png" alt="Dashboard showing a locked tablet, today's limit, today's schedule, and temporary controls" width="420"> | <img src="../assets/images/2_dashboard_bonus_confirmation.png" alt="Dashboard confirmation dialog for adding bonus time" width="420"> |
+| <img src="../assets/images/3_dashboard_unlocked_bonus_active.png" alt="Dashboard showing an unlocked tablet with an active bonus" width="420"> | <img src="../assets/images/6_dashboard_details_and_toggles.png" alt="Dashboard details panel with sync status, metrics, and admin toggles" width="420"> |
 
 | Weekly schedule | Edit mode |
 | --- | --- |
-| <img src="assets/images/4_dashboard_weekly_schedule.png" alt="Dashboard weekly schedule panel with daily limits and lock times" width="420"> | <img src="assets/images/5_dashboard_weekly_edit_mode.png" alt="Dashboard weekly schedule panel in edit mode" width="420"> |
+| <img src="../assets/images/4_dashboard_weekly_schedule.png" alt="Dashboard weekly schedule panel with daily limits and lock times" width="420"> | <img src="../assets/images/5_dashboard_weekly_edit_mode.png" alt="Dashboard weekly schedule panel in edit mode" width="420"> |
 
 ## Extended Feature Examples
 

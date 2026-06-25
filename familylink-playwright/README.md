@@ -222,7 +222,6 @@ The add-on uses Playwright with Chromium running on a virtual display (Xvfb):
 ## Support
 
 - **Issues**: [GitHub Issues](https://github.com/benkap/HAFamilyLink/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/benkap/HAFamilyLink/discussions)
 
 ## Changelog
 
