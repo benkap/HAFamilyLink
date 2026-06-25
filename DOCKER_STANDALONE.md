@@ -40,6 +40,9 @@ services:
       - VNC_PASSWORD=familylink
       - LANGUAGE=en-US
       - TIMEZONE=Europe/Paris
+      # Optional: force a specific key for /api/cookies. If unset, the
+      # container creates ./data/api_key on first start.
+      # - API_KEY=change-me
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -131,20 +134,21 @@ Order matters:
 1. Install the **Family Link** integration in Home Assistant (via HACS or manually)
 2. Go to **Settings > Devices & Services > Add Integration > Family Link**
 3. In the menu, pick **"Manual URL configuration (Docker standalone)"**
-4. Enter the auth server URL: `http://<your-docker-host>:8099`
-5. The integration will connect to the standalone container and retrieve authentication cookies
+4. Read the generated cookie API key: `cat ./data/api_key`
+5. Enter the auth server URL with the key: `http://<your-docker-host>:8099?api_key=<key>`
+6. The integration will connect to the standalone container and retrieve authentication cookies
 
-> 🔑 **Securing the cookie endpoint (optional but recommended).**
+> 🔑 **Cookie endpoint API key.**
 > `/api/cookies` hands out your full Google session, so you should not expose
-> port 8099 beyond your trusted network. To require a key, set the `API_KEY`
-> environment variable on the container, then append it to the URL:
-> `http://<your-docker-host>:8099?api_key=<your-key>`.
+> port 8099 beyond your trusted network. The container requires an API key for
+> `/api/cookies`; by default it creates one at `./data/api_key` on first start.
+> Append that key to the Home Assistant integration URL:
+> `http://<your-docker-host>:8099?api_key=<key>`.
 >
-> In standalone mode the endpoint is **open by default** (the container and the
-> HA integration don't share a volume, so an auto-generated key couldn't be
-> handed over). Setting `API_KEY` is the supported way to lock it down. On HA OS
-> / Supervised add-on installs the key is auto-generated and shared — no config
-> needed.
+> You can force a specific key with the `API_KEY` environment variable. The
+> container intentionally refuses to serve `/api/cookies` if it cannot read or
+> create a key, because that endpoint returns your Google session to anyone who
+> can reach port 8099.
 
 ## Updating
 

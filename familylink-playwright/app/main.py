@@ -50,49 +50,53 @@ app.add_middleware(
 
 # API key for protecting the auth-flow endpoints (optional, env-provided)
 _API_KEY = os.getenv("API_KEY", "")
-# Supervisor add-on (HA OS/Supervised) injects SUPERVISOR_TOKEN; run.sh also
-# sets ADDON_MODE=1. In that mode the integration shares /share/familylink so
-# the cookie key is enforced with zero config. In Docker standalone there is no
-# shared volume, so an auto-generated key would break the integration.
-_ADDON_MODE = bool(os.getenv("SUPERVISOR_TOKEN") or os.getenv("ADDON_MODE"))
+# The cookie endpoint is protected in every mode by either API_KEY or a
+# generated /share/familylink/api_key file.
 
 # Global instances
 storage = SharedStorage(config.share_dir)
 browser_manager = None
 
 
-def _load_or_create_cookie_api_key() -> "str | None":
-    """Return the cookie-endpoint key, or None when intentionally left open.
+def _load_or_create_cookie_api_key() -> str:
+    """Return the cookie-endpoint key, generating one when needed.
 
-    /api/cookies hands out full Google session cookies — left open, anyone
+    /api/cookies hands out full Google session cookies. Left open, anyone
     on the LAN (e.g. the supervised child) could grab a parent session and
     bypass Family Link entirely. The API_KEY environment variable takes
     precedence; otherwise a key is generated once and persisted in the
-    shared directory, where the Home Assistant integration (add-on setup)
-    picks it up automatically via /share/familylink/api_key.
+    shared directory.
     """
     if _API_KEY:
         return _API_KEY
-    if not _ADDON_MODE:
-        _LOGGER.warning(
-            "Cookie endpoint /api/cookies is UNPROTECTED: standalone mode "
-            "without API_KEY. Anyone able to reach port 8099 can read the "
-            "stored Google cookies. Set API_KEY and point the integration at "
-            "http://<host>:8099?api_key=<key> to protect it."
-        )
-        return None
+
     key_path = Path(config.share_dir) / "api_key"
     try:
         existing = key_path.read_text().strip()
         if existing:
             return existing
-    except OSError:
+    except FileNotFoundError:
         pass
-    key = secrets.token_urlsafe(32)
-    key_path.write_text(key)
-    os.chmod(key_path, 0o600)
-    _LOGGER.info(f"Generated cookie API key at {key_path}")
-    return key
+    except OSError as err:
+        _LOGGER.warning("Could not read shared cookie endpoint file: %s", err)
+
+    try:
+        key_path.parent.mkdir(parents=True, exist_ok=True)
+        key = secrets.token_urlsafe(32)
+        key_path.write_text(key)
+        os.chmod(key_path, 0o600)
+        _LOGGER.info("Prepared shared cookie endpoint file")
+        return key
+    except OSError as err:
+        _LOGGER.error(
+            "Could not prepare shared cookie endpoint file: %s. "
+            "Set an explicit endpoint credential or make %s writable.",
+            err,
+            key_path.parent,
+        )
+        raise RuntimeError(
+            "Cookie endpoint authentication is required but could not be prepared"
+        ) from err
 
 
 _COOKIE_API_KEY = _load_or_create_cookie_api_key()
@@ -113,9 +117,7 @@ def _verify_api_key(request: Request):
 
 
 def _verify_cookie_api_key(request: Request):
-    """Protect cookie endpoints when a key exists; open in standalone w/o API_KEY."""
-    if _COOKIE_API_KEY is None:
-        return
+    """Protect cookie endpoints."""
     _check_key(request, _COOKIE_API_KEY)
 
 
