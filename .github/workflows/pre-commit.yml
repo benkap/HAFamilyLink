@@ -24,9 +24,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements-dev.txt
 
       - name: Install pre-commit
-        run: python -m pip install pre-commit
+        run: python -m pip install -c requirements-dev.txt pre-commit
 
       - name: Run hooks
         run: pre-commit run --all-files
