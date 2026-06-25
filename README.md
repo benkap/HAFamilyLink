@@ -4,7 +4,7 @@
 [![HACS][hacsbadge]][hacs]
 [![License][license-shield]][license]
 
-A practical Home Assistant integration for Google Family Link, maintained with appreciation for the original project and the community work behind it. Track screen time, manage time limits, control bedtime/school schedules, and manage time bonuses directly from Home Assistant.
+Built from the brilliant work by [@noiwid](https://github.com/noiwid), this fork adds the Family Link API coverage and opinionated tweaks I needed for my own home. If that sounds like more than you need, start with [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink) first; it may be the cleaner fit for your setup.
 
 ## 🚨 Important Disclaimer
 
@@ -21,12 +21,10 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 ### ⏰ Time Management
 - **Bedtime Control** - Enable/disable bedtime (downtime) restrictions
 - **Set Bedtime Schedule** - Modify recurring bedtime start/end times for any weekday
-- **School Time Control** - Enable/disable school time restrictions
 - **Daily Limit Control** - Enable/disable daily screen time limits (0-1440 minutes)
-- **Set Daily Limit** - Change today's daily screen time limit duration per device
 - **Set Daily Limit Schedule** - Modify recurring daily limit minutes for any weekday
 - **Time Bonuses** - Add extra time (15min, 30min, 60min) or cancel active bonuses
-- **Smart Detection** - Automatically detects when device is in bedtime/school time window
+- **Smart Detection** - Automatically detects when device is in bedtime and, when available, school time windows
 - **Schedule Visibility** - View bedtime, school time, and daily limit schedules in sensor attributes
 
 ### 📊 Screen Time Monitoring
@@ -37,12 +35,11 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 - **Top 10 Apps** - Monitor most-used apps with detailed usage statistics
 - **App Breakdown** - Per-application usage breakdown
 
-### 📲 App Management
+### 📲 App Visibility
 - **Installed Apps Count** - Total number of apps on supervised devices
 - **Blocked Apps** - List and count of blocked/hidden apps
 - **Apps with Time Limits** - Track apps with usage restrictions
 - **App Details** - Package names, titles, and limit information
-- **4 App States** - Block, app limit off, set limit, or unlimited time per app
 
 ### 📍 GPS Location Tracking (Optional)
 - **Device Tracker** - Track your child's location via `device_tracker` entity
@@ -58,6 +55,16 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 - **Profile Details** - Child's name, email, birthday, age band
 - **Device Information** - Device model, name, capabilities, last activity
 - **Family Members** - List of all family members with roles
+
+## 🚧 Limitations / Not Currently Supported
+
+This fork focuses on the controls I actually use at home. It currently does not support:
+
+- Daily limit "Today" overrides; I use bonus time for one-off changes instead
+- Downtime "Tonight" overrides; I change the recurring weekly bedtime schedule instead
+- School time changes; school time data may still appear as read-only status/schedule information when Google returns it
+- App approval and app policy workflows, including allowed apps, parent approvals, unlimited apps, app limits, and app blocking
+- Website allowlists or blocklists
 
 ## 📋 Available Entities
 
@@ -86,7 +93,6 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 
 #### Switches (Global Controls)
 - `switch.<child>_bedtime` - Enable/disable bedtime restrictions
-- `switch.<child>_school_time` - Enable/disable school time restrictions
 - `switch.<child>_daily_limit` - Enable/disable daily screen time limit
 
 #### Schedule Sensors
@@ -98,8 +104,8 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 #### Schedule Services
 - `familylink.set_bedtime_schedule` - Update a recurring bedtime weekday window and enabled state
 - `familylink.set_daily_limit_schedule` - Update recurring daily limit minutes and enabled state for one weekday
-- `familylink.set_bedtime` and `familylink.set_daily_limit` remain one-day override services
 - School time schedules are exposed read-only through `sensor.<child>_school_time_schedule`. This fork's recurring schedule write work focuses on bedtime and daily limits; it does not implement weekly school time schedule editing.
+- One-day daily limit "Today" and downtime "Tonight" overrides are intentionally not supported; use bonus time or recurring schedule edits instead.
 - Schedule day calculations use the optional `schedule_timezone` setting when provided. Leave it blank to use the child's device timezone from Google when available, then fall back to Home Assistant's timezone.
 
 ### Per-Device Entities
@@ -143,30 +149,6 @@ This integration uses unofficial, reverse-engineered Google Family Link API endp
 
 ## 🎯 What's New
 
-### Unlimited Time Mode for Apps (#79)
-
-The `set_app_daily_limit` service now supports all 4 Family Link app states:
-
-```yaml
-# Set app to unlimited time (ignores device daily limits)
-service: familylink.set_app_daily_limit
-data:
-  package_name: com.zhiliaoapp.musically
-  minutes: -2
-
-# Disable app limit (follows device limits)
-service: familylink.set_app_daily_limit
-data:
-  package_name: com.zhiliaoapp.musically
-  minutes: -1
-
-# Set 60 min/day limit
-service: familylink.set_app_daily_limit
-data:
-  package_name: com.zhiliaoapp.musically
-  minutes: 60
-```
-
 ### On-Demand Location Refresh (#78)
 
 New `refresh_location` service to force a fresh GPS update from the child's device:
@@ -176,15 +158,6 @@ service: familylink.refresh_location
 data:
   entity_id: device_tracker.emma
 ```
-
-### Per-App Daily Time Limits (#59)
-
-`set_app_daily_limit` service to control screen time per application.
-
-### Multi-Child Support (#57)
-
-App control services apply to **ALL children** by default. Use `entity_id` or `child_id` to target a specific child.
-
 
 ## 🏗️ Architecture
 
@@ -273,14 +246,13 @@ This integration uses reverse-engineered Google Family Link API endpoints:
 | `/families/mine/members` | Family member information |
 | `/families/mine/location/{userId}` | Child GPS location |
 | `/people/{userId}/apps` | Installed apps list |
-| `/people/{userId}/apps:updateRestrictions` | Block/unblock apps, set per-app time limits |
 | `/people/{userId}/appsandusage` | App usage data |
 | `/people/{userId}/devices` | Device metadata, including device timezone when exposed |
 | `/people/{userId}/timeLimitOverrides:batchCreate` | Lock/unlock devices, add time bonuses |
 | `/people/{userId}/timeLimitOverride/{id}?$httpMethod=DELETE` | Cancel time bonuses |
 | `/people/{userId}/appliedTimeLimits` | Current time limits and lock states |
 | `/people/{userId}/timeLimit` | Time limit rules and schedules |
-| `/people/{userId}/timeLimit:update` | Enable/disable bedtime, school time, daily limit; update recurring bedtime and daily limit schedules |
+| `/people/{userId}/timeLimit:update` | Enable/disable bedtime and daily limit; update recurring bedtime and daily limit schedules |
 
 ## 🐛 Troubleshooting
 
@@ -457,10 +429,9 @@ automation:
 
 ## 📈 Version History
 
-- **v1.0.0** (2026-01) - Per-App Time Limits & Multi-Child Support 🎉
-  - **New service `set_app_daily_limit`** - Set daily time limits per app (e.g., 60 min for TikTok)
-  - **Multi-child support** - `block_app`, `unblock_app`, `set_app_daily_limit` apply to ALL children by default
-  - Optional `entity_id` and `child_id` parameters for targeting specific children
+- **v1.0.0** (2026-01) - Multi-child groundwork
+  - Better targeting support across child/device entities
+  - Improved app visibility data for installed apps, blocked apps, and app usage
  
 - **v0.9.8** (2026-01) - Battery Level Support
   - **Battery Level Sensor** - Monitor battery % of location source device
@@ -560,7 +531,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Credits
 
-- Originally developed by [@noiwid](https://github.com/noiwid); maintained here with thanks for that foundation
+- Huge thanks to [@noiwid](https://github.com/noiwid) for the brilliant original HAFamilyLink project. This fork would not exist without that work.
 - Based on the original work by [@tducret](https://github.com/tducret/familylink) (Python package documenting Family Link API endpoints)
 - Inspired by [@Vortitron's HAFamilyLink](https://github.com/Vortitron/HAFamilyLink) repository
 - noVNC integration inspired by [@jnctech's fork](https://github.com/jnctech/HAFamilyLink)
