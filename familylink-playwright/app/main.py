@@ -51,22 +51,16 @@ app.add_middleware(
 _API_KEY = os.getenv("API_KEY", "")
 # The cookie endpoint is protected in every mode by either API_KEY or a
 # generated /share/familylink/api_key file.
-_ALLOW_INSECURE_COOKIE_API = os.getenv("ALLOW_INSECURE_COOKIE_API", "").lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
 
 # Global instances
 storage = SharedStorage(config.share_dir)
 browser_manager = None
 
 
-def _load_or_create_cookie_api_key() -> "str | None":
+def _load_or_create_cookie_api_key() -> str:
     """Return the cookie-endpoint key, generating one when needed.
 
-    /api/cookies hands out full Google session cookies — left open, anyone
+    /api/cookies hands out full Google session cookies. Left open, anyone
     on the LAN (e.g. the supervised child) could grab a parent session and
     bypass Family Link entirely. The API_KEY environment variable takes
     precedence; otherwise a key is generated once and persisted in the
@@ -83,31 +77,25 @@ def _load_or_create_cookie_api_key() -> "str | None":
     except FileNotFoundError:
         pass
     except OSError as err:
-        _LOGGER.warning("Could not read cookie API key from %s: %s", key_path, err)
+        _LOGGER.warning("Could not read shared cookie endpoint file: %s", err)
 
     try:
         key_path.parent.mkdir(parents=True, exist_ok=True)
         key = secrets.token_urlsafe(32)
         key_path.write_text(key)
         os.chmod(key_path, 0o600)
-        _LOGGER.info("Generated cookie API key at %s", key_path)
+        _LOGGER.info("Prepared shared cookie endpoint file")
         return key
     except OSError as err:
-        if _ALLOW_INSECURE_COOKIE_API:
-            _LOGGER.warning(
-                "Cookie endpoint /api/cookies is UNPROTECTED because "
-                "ALLOW_INSECURE_COOKIE_API is enabled and %s could not be written: %s",
-                key_path,
-                err,
-            )
-            return None
-        _LOGGER.warning(
-            "Could not create cookie API key at %s. Set API_KEY or make "
-            "%s writable. Refusing to expose /api/cookies without a key.",
-            key_path,
+        _LOGGER.error(
+            "Could not prepare shared cookie endpoint file: %s. "
+            "Set an explicit endpoint credential or make %s writable.",
+            err,
             key_path.parent,
         )
-        raise RuntimeError("Cookie API key is required but could not be created") from err
+        raise RuntimeError(
+            "Cookie endpoint authentication is required but could not be prepared"
+        ) from err
 
 
 _COOKIE_API_KEY = _load_or_create_cookie_api_key()
@@ -128,9 +116,7 @@ def _verify_api_key(request: Request):
 
 
 def _verify_cookie_api_key(request: Request):
-    """Protect cookie endpoints unless explicitly running in insecure mode."""
-    if _COOKIE_API_KEY is None:
-        return
+    """Protect cookie endpoints."""
     _check_key(request, _COOKIE_API_KEY)
 
 

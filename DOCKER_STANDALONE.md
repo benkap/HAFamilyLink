@@ -146,8 +146,9 @@ Order matters:
 > `http://<your-docker-host>:8099?api_key=<key>`.
 >
 > You can force a specific key with the `API_KEY` environment variable. The
-> only way to run without a cookie API key is the explicit
-> `ALLOW_INSECURE_COOKIE_API=1` escape hatch, which is not recommended.
+> container intentionally refuses to serve `/api/cookies` if it cannot read or
+> create a key, because that endpoint returns your Google session to anyone who
+> can reach port 8099.
 
 ## Updating
 

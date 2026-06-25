@@ -166,7 +166,7 @@ The add-on provides **two methods** for the integration to retrieve cookies:
 - ✅ Browser isolation in container
 - ✅ No external network dependencies
 
-> ⚠️ **Security Warning**: **NEVER expose port 8099 to the internet!** The `/api/cookies` endpoint returns authentication cookies in plain JSON and requires an API key. The key is auto-generated on first start in `/share/familylink/api_key` unless you set `API_KEY` yourself. For Docker standalone, append it to the integration URL as `?api_key=<key>`. If you need remote access, use a VPN or SSH tunnel.
+> ⚠️ **Security Warning**: **NEVER expose port 8099 to the internet!** The `/api/cookies` endpoint returns authentication cookies in plain JSON and requires an API key. The key is auto-generated on first start in `/share/familylink/api_key` unless you set `API_KEY` yourself. The service fails closed if it cannot protect that endpoint. For Docker standalone, append the key to the integration URL as `?api_key=<key>`. If you need remote access, use a VPN or SSH tunnel.
 
 ### Browser Automation
 
