@@ -407,7 +407,7 @@ A: Typically 24 hours to several weeks, depending on Google's security settings 
 A: Currently no. Only one account at a time. Feature request welcome!
 
 **Q: Does this work on Home Assistant Container/Core (Docker)?**
-A: Yes! Starting with v0.9.4/v1.3.0, Docker standalone is supported. Run the add-on as a standalone Docker container and configure the integration with the auth server URL. See [Docker Standalone Guide](../DOCKER_STANDALONE.md).
+A: Yes! Starting with v0.9.4/v1.3.0, Docker standalone is supported. Run the add-on as a standalone Docker container and configure the integration with the auth server URL. See [Docker Standalone Guide](../docs/DOCKER_STANDALONE.md).
 
 **Q: Can I run this on Raspberry Pi?**
 A: Yes, but performance may be slow during authentication due to browser automation overhead. ARM builds are supported.
@@ -420,7 +420,7 @@ A: The add-on may break. Updates will be released to adapt to Google's changes.
 ## Support & Contributing
 
 - **Report Issues**: [GitHub Issues](https://github.com/benkap/HAFamilyLink/issues)
-- **Feature Requests**: [GitHub Discussions](https://github.com/benkap/HAFamilyLink/discussions)
+- **Feature Requests**: [GitHub Issues](https://github.com/benkap/HAFamilyLink/issues/new)
 - **Contributions**: Pull requests welcome!
 
 ## Changelog

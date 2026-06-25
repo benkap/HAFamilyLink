@@ -1,6 +1,6 @@
 # Advanced Reference
 
-This page is for entity lookup, legacy sensors, and local development. If you are installing for the first time, start with the [README](README.md) and [Installation Guide](INSTALL.md).
+This page is for entity lookup, legacy sensors, and local development. If you are installing for the first time, start with the [README](../README.md) and [Installation Guide](INSTALL.md).
 
 ## Available Entities
 
@@ -156,4 +156,4 @@ Useful checks before opening a pull request:
 git diff --check
 ```
 
-For contribution expectations, version bumps, and bug-report details, see [Contributing](CONTRIBUTING.md).
+For contribution expectations, version bumps, and bug-report details, see [Contributing](../CONTRIBUTING.md).

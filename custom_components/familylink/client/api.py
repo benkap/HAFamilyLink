@@ -1336,7 +1336,7 @@ class FamilyLinkClient:
 				# Used by the switches to reflect the actual locked/unlocked state on
 				# the child device for today (issue #114) — combines weekly policy
 				# with any daily override that's been applied. See doc note in
-				# GOOGLE_FAMILY_LINK_API_ANALYSIS.md ("appliedTimeLimits effective
+				# docs/GOOGLE_FAMILY_LINK_API_ANALYSIS.md ("appliedTimeLimits effective
 				# state for today").
 				bedtime_enabled_today = False
 				schooltime_enabled_today = False
@@ -1889,7 +1889,7 @@ class FamilyLinkClient:
 
 			# Step 2: post the per-day override. Bedtime overrides reference
 			# the day via the opaque CAEQxx day_code (NOT a [weekday, uuid]
-			# tuple like schooltime — see GOOGLE_FAMILY_LINK_API_ANALYSIS.md).
+			# tuple like schooltime — see docs/GOOGLE_FAMILY_LINK_API_ANALYSIS.md).
 			action = 2 if enable else 1
 			override_payload = json.dumps([
 				None,

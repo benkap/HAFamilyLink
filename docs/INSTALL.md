@@ -8,9 +8,9 @@ Google Family Link Extended Integration for Home Assistant 👨‍👩‍👧‍
 ## Table of Contents 📚
 
 1. [Prerequisites](#prerequisites)
-2. [Step 1: Install Add-on](#step-1-install-add-on)
-3. [Step 2: Install Integration](#step-2-install-integration)
-4. [Step 3: Configure](#step-3-configure)
+2. [Step 1: Install the Family Link Auth Add-on](#step-1-install-the-family-link-auth-add-on)
+3. [Step 2: Install the Integration](#step-2-install-the-integration)
+4. [Step 3: Configure the Integration](#step-3-configure-the-integration)
 5. [Verification](#verification)
 6. [Troubleshooting](#troubleshooting)
 
@@ -416,7 +416,6 @@ If you encounter issues:
 1. **Check Logs**: Settings > System > Logs > Filter "familylink"  
 2. **Search Issues**: [GitHub Issues](https://github.com/benkap/HAFamilyLink/issues)
 3. **Report Bug**: [Create New Issue](https://github.com/benkap/HAFamilyLink/issues/new)
-4. **Discussions**: [GitHub Discussions](https://github.com/benkap/HAFamilyLink/discussions)
 
 When reporting issues, please include:  
 - Home Assistant version 🔢  
@@ -431,7 +430,7 @@ When reporting issues, please include:
 
 After installation:
 
-1. **Create Automations** - See [README.md](README.md#example-automations)  
+1. **Create Automations** - See [Example Automations](AUTOMATIONS.md)
 2. **Customize Entities** - Rename, change icons, set friendly names ✨  
 3. **Add to Dashboard** - Create cards for monitoring 📊  
 4. **Set Update Interval** - Customize polling frequency ⏱️  
