@@ -12,12 +12,37 @@ updates:
       timezone: "UTC"
     open-pull-requests-limit: 5
     groups:
-      python-minor-patch:
+      python-patches:
         patterns:
           - "*"
         update-types:
-          - "minor"
           - "patch"
+        group-by: "dependency-name"
+    ignore:
+      - dependency-name: "aiohttp"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+      - dependency-name: "cryptography"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+      - dependency-name: "fastapi"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+      - dependency-name: "playwright"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+      - dependency-name: "pydantic"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+      - dependency-name: "uvicorn"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
 
   - package-ecosystem: "docker"
     directory: "/familylink-playwright"
@@ -31,6 +56,13 @@ updates:
       docker-images:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "debian"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -43,3 +75,10 @@ updates:
       github-actions:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
