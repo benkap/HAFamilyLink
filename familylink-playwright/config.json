@@ -3,7 +3,7 @@
   "version": "1.7.1",
   "slug": "familylink-playwright",
   "description": "Authentication service for Google Family Link integration using browser automation",
-  "url": "https://github.com/noiwid/HAFamilyLink",
+  "url": "https://github.com/benkap/HAFamilyLink",
   "arch": ["amd64", "aarch64"],
   "startup": "application",
   "boot": "auto",

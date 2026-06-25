@@ -39,7 +39,7 @@ Google Family Link Integration for Home Assistant 👨‍👩‍👧‍👦
 
 ## Step 1: Install the Family Link Auth Add-on 🔧
 
-[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fnoiwid%2FHAFamilyLink)
+[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fbenkap%2FHAFamilyLink)
 
 The add-on handles Google authentication using Playwright browser automation.
 
@@ -50,7 +50,7 @@ The add-on handles Google authentication using Playwright browser automation.
 3. Click the **...** menu (top right) > **Repositories**  
 4. Add this URL:  
    ```
-   https://github.com/noiwid/HAFamilyLink
+   https://github.com/benkap/HAFamilyLink
    ```
 5. Click **Add** > **Close**
 
@@ -134,13 +134,13 @@ You can install the integration via HACS (recommended) or manually.
 
 ### Option A: Install via HACS (Recommended) ⭐
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Noiwid&repository=HAFamilyLink&category=Integration+)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=benkap&repository=HAFamilyLink&category=Integration+)
 
 1. Open Home Assistant  
 2. Navigate to **HACS** > **Integrations**  
 3. Click **...** (top right) > **Custom repositories**  
 4. Add repository:  
-   - **Repository**: `https://github.com/noiwid/HAFamilyLink`  
+   - **Repository**: `https://github.com/benkap/HAFamilyLink`
    - **Category**: `Integration`  
 5. Click **Add**  
 6. Close the custom repositories dialog  
@@ -153,7 +153,7 @@ You can install the integration via HACS (recommended) or manually.
 
 ### Option B: Manual Installation 📦
 
-1. Download the [latest release](https://github.com/noiwid/HAFamilyLink/releases) from GitHub  
+1. Download the [latest release](https://github.com/benkap/HAFamilyLink/releases) from GitHub
 2. Extract the ZIP file  
 3. Copy the `custom_components/familylink` folder to your Home Assistant `config/custom_components/` directory  
 
@@ -414,9 +414,9 @@ rm -rf /share/familylink
 If you encounter issues:
 
 1. **Check Logs**: Settings > System > Logs > Filter "familylink"  
-2. **Search Issues**: [GitHub Issues](https://github.com/noiwid/HAFamilyLink/issues)  
-3. **Report Bug**: [Create New Issue](https://github.com/noiwid/HAFamilyLink/issues/new)  
-4. **Discussions**: [GitHub Discussions](https://github.com/noiwid/HAFamilyLink/discussions)
+2. **Search Issues**: [GitHub Issues](https://github.com/benkap/HAFamilyLink/issues)
+3. **Report Bug**: [Create New Issue](https://github.com/benkap/HAFamilyLink/issues/new)
+4. **Discussions**: [GitHub Discussions](https://github.com/benkap/HAFamilyLink/discussions)
 
 When reporting issues, please include:  
 - Home Assistant version 🔢  

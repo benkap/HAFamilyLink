@@ -3,7 +3,7 @@ version: '3.8'
 services:
   familylink-auth:
     # Option 1: Use pre-built standalone image (recommended after v0.9.2)
-    image: ghcr.io/noiwid/familylink-auth:standalone
+    image: ghcr.io/benkap/familylink-auth:standalone
     # Option 2: Build locally from Dockerfile.standalone
     # build:
     #   context: .

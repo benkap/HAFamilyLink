@@ -50,7 +50,7 @@ Both approaches are:
 
 1. Add repository URL to Home Assistant:
    - Supervisor → Add-on Store → ⋮ → Repositories
-   - Add: `https://github.com/noiwid/HAFamilyLink`
+   - Add: `https://github.com/benkap/HAFamilyLink`
 
 2. Find "Google Family Link Auth" in store
 3. Click Install
@@ -419,8 +419,8 @@ A: The add-on may break. Updates will be released to adapt to Google's changes.
 
 ## Support & Contributing
 
-- **Report Issues**: [GitHub Issues](https://github.com/noiwid/HAFamilyLink/issues)
-- **Feature Requests**: [GitHub Discussions](https://github.com/noiwid/HAFamilyLink/discussions)
+- **Report Issues**: [GitHub Issues](https://github.com/benkap/HAFamilyLink/issues)
+- **Feature Requests**: [GitHub Discussions](https://github.com/benkap/HAFamilyLink/discussions)
 - **Contributions**: Pull requests welcome!
 
 ## Changelog
