@@ -25,7 +25,7 @@ version: '3.8'
 
 services:
   familylink-auth:
-    image: ghcr.io/noiwid/familylink-auth:standalone
+    image: ghcr.io/benkap/familylink-auth:standalone
     container_name: familylink-auth
     ports:
       - "8099:8099"  # API
@@ -79,7 +79,7 @@ docker run -d \
   --dns 8.8.8.8 \
   --dns 8.8.4.4 \
   --restart unless-stopped \
-  ghcr.io/noiwid/familylink-auth:standalone
+  ghcr.io/benkap/familylink-auth:standalone
 ```
 
 ## Supported Architectures
@@ -162,7 +162,7 @@ docker compose up -d
 ### Docker Run
 
 ```bash
-docker pull ghcr.io/noiwid/familylink-auth:standalone
+docker pull ghcr.io/benkap/familylink-auth:standalone
 docker stop familylink-auth
 docker rm familylink-auth
 # Re-run the docker run command above

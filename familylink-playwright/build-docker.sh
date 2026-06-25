@@ -2,7 +2,7 @@
 # Build and push Docker image for Family Link Auth addon
 
 # Configuration
-DOCKER_USER="${DOCKER_USER:-noiwid}"
+DOCKER_USER="${DOCKER_USER:-benkap}"
 IMAGE_NAME="familylink-auth"
 VERSION=$(grep '"version":' config.json | sed 's/.*"version": "\(.*\)".*/\1/')
 

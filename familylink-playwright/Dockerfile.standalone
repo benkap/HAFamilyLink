@@ -53,7 +53,7 @@ LABEL \
     org.opencontainers.image.title="Google Family Link Auth (Standalone)" \
     org.opencontainers.image.description="Standalone authentication service for Google Family Link" \
     org.opencontainers.image.version="1.7.1" \
-    org.opencontainers.image.source="https://github.com/noiwid/HAFamilyLink"
+    org.opencontainers.image.source="https://github.com/benkap/HAFamilyLink"
 
 # Start the service
 CMD ["/usr/local/bin/run-standalone.sh"]

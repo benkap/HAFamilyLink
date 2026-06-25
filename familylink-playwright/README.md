@@ -29,7 +29,7 @@ This add-on runs a web server with Playwright browser automation to handle Googl
 1. **Add Repository**:
    - Go to **Supervisor** → **Add-on Store**
    - Click the ⋮ menu → **Repositories**
-   - Add: `https://github.com/noiwid/HAFamilyLink`
+   - Add: `https://github.com/benkap/HAFamilyLink`
 
 2. **Install Add-on**:
    - Find "Google Family Link Auth" in the add-on store
@@ -221,8 +221,8 @@ The add-on uses Playwright with Chromium running on a virtual display (Xvfb):
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/noiwid/HAFamilyLink/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/noiwid/HAFamilyLink/discussions)
+- **Issues**: [GitHub Issues](https://github.com/benkap/HAFamilyLink/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/benkap/HAFamilyLink/discussions)
 
 ## Changelog
 
