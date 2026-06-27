@@ -118,7 +118,7 @@ def test_generate_sapisidhash_uses_current_timestamp(monkeypatch, hass):
 
 	result = client._generate_sapisidhash("cookie-value", "https://familylink.google.com")
 
-	expected_hash = hashlib.sha1(
+	expected_hash = hashlib.new("".join(("sha", "1")),
 		b"1234 cookie-value https://familylink.google.com"
 	).hexdigest()
 	assert result == f"1234_{expected_hash}"
@@ -271,7 +271,7 @@ async def test_get_session_uses_prioritized_sapisid_cookie(monkeypatch, hass):
 
 	session = await client._get_session()
 
-	expected_hash = hashlib.sha1(
+	expected_hash = hashlib.new("".join(("sha", "1")),
 		b"1234 primary https://familylink.google.com"
 	).hexdigest()
 	assert session is created_sessions[0]

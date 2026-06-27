@@ -10,6 +10,12 @@ from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 _LOGGER = logging.getLogger(__name__)
 
 
+def _is_google_cookie_domain(domain: str) -> bool:
+    """Return true for google.com and its subdomains."""
+    normalized = domain.lstrip(".").lower()
+    return normalized == "google.com" or normalized.endswith(".google.com")
+
+
 class BrowserAuthManager:
     """Manages browser-based authentication sessions."""
 
@@ -221,7 +227,7 @@ class BrowserAuthManager:
                     google_auth_cookies = [
                         c for c in cookies
                         if c.get('name') in GOOGLE_AUTH_COOKIE_NAMES
-                        and '.google.com' in c.get('domain', '')
+                        and _is_google_cookie_domain(c.get('domain', ''))
                     ]
                     if len(google_auth_cookies) >= 3:
                         _LOGGER.info(

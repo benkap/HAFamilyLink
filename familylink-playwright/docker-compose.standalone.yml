@@ -1,6 +1,8 @@
 version: '3.8'
 
 services:
+  # The browser profile and encrypted cookie store require writable paths.
+  # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
   familylink-auth:
     # Option 1: Use pre-built standalone image (recommended after v0.9.2)
     image: ghcr.io/benkap/familylink-auth:standalone
@@ -32,6 +34,8 @@ services:
     #   - 8.8.8.8
     #   - 8.8.4.4
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "familylink-healthcheck"]
       interval: 30s

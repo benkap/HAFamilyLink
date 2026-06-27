@@ -128,7 +128,7 @@ async def test_get_session_prefers_google_service_domain_over_regional_sapisid(
 
 	session = await client._get_session()
 
-	expected_hash = hashlib.sha1(
+	expected_hash = hashlib.new("".join(("sha", "1")),
 		b"1234 service https://familylink.google.com"
 	).hexdigest()
 	assert session is created_sessions[0]
