@@ -2,6 +2,11 @@
 
 All notable changes to the Google Family Link Auth Add-on will be documented in this file.
 
+## [Unreleased]
+
+### Security
+- Updated `cryptography` to 48.0.1 for the standalone auth runtime.
+
 ## [1.7.1] - 2026-06-15
 
 ### Fixed
