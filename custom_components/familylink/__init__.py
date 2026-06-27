@@ -813,12 +813,12 @@ async def async_setup_services(hass: HomeAssistant, coordinator: FamilyLinkDataU
 
 		try:
 			if child_id:
-				_LOGGER.info(f"Service called: refresh_location (child_id: {child_id})")
+				_LOGGER.info("Service called: refresh_location (one child)")
 				location = await coordinator.client.async_get_location(account_id=child_id, refresh=True)
 				if location:
-					_LOGGER.info(f"Successfully refreshed location for child {child_id}: ({location['latitude']}, {location['longitude']})")
+					_LOGGER.info("Successfully refreshed location for child")
 				else:
-					_LOGGER.warning(f"No location data returned for child {child_id}")
+					_LOGGER.warning("No location data returned for child")
 			else:
 				# Refresh location for ALL supervised children
 				_LOGGER.info("Service called: refresh_location (all children)")
@@ -828,7 +828,7 @@ async def async_setup_services(hass: HomeAssistant, coordinator: FamilyLinkDataU
 					child_name = child["name"]
 					location = await coordinator.client.async_get_location(account_id=child_account_id, refresh=True)
 					if location:
-						_LOGGER.info(f"Successfully refreshed location for {child_name}: ({location['latitude']}, {location['longitude']})")
+						_LOGGER.info("Successfully refreshed location for %s", child_name)
 					else:
 						_LOGGER.warning(f"No location data returned for {child_name}")
 

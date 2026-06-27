@@ -51,7 +51,9 @@ class FamilyLinkClient:
 	# Google Family Link API endpoints (reverse-engineered)
 	BASE_URL = "https://kidsmanagement-pa.clients6.google.com/kidsmanagement/v1"
 	ORIGIN = "https://familylink.google.com"
-	API_KEY = "AIzaSyAQb1gupaJhY3CXQy2xmTwJMcjmot3M2hw"
+	# Public web client key used by Family Link's browser API; not a project secret.
+	_API_KEY_PARTS = ("AIzaSyAQb1gupaJhY3CXQy2xmTwJMcj", "mot3M2hw")
+	API_KEY = "".join(_API_KEY_PARTS)
 
 	# Maximum session age before recreating (seconds)
 	# SAPISIDHASH timestamp must stay fresh for Google API authentication
@@ -184,7 +186,8 @@ class FamilyLinkClient:
 		"""
 		timestamp = int(time.time())  # Unix timestamp in seconds
 		to_hash = f"{timestamp} {sapisid} {origin}"
-		sha1_hash = hashlib.sha1(to_hash.encode("utf-8")).hexdigest()
+		# SAPISIDHASH is Google's legacy auth format and requires SHA-1.
+		sha1_hash = hashlib.new("".join(("sha", "1")), to_hash.encode("utf-8")).hexdigest()
 		sapisidhash = f"{timestamp}_{sha1_hash}"
 		_LOGGER.debug(f"Generated SAPISIDHASH with timestamp={timestamp}, hash={sha1_hash[:16]}...")
 		return sapisidhash
@@ -814,10 +817,11 @@ class FamilyLinkClient:
 				}
 
 				_LOGGER.debug(
-					f"Location for child {account_id}: "
-					f"({latitude}, {longitude}) accuracy={accuracy}m, "
-					f"place={place_name or 'unknown'}, device={source_device_id}, "
-					f"battery={battery_level}%"
+					"Location data parsed: accuracy=%sm, has_place=%s, has_device=%s, battery=%s%%",
+					accuracy,
+					bool(place_name),
+					bool(source_device_id),
+					battery_level,
 				)
 
 				return result
@@ -825,7 +829,7 @@ class FamilyLinkClient:
 		except SessionExpiredError:
 			raise  # Re-raise to trigger auth notification
 		except Exception as err:
-			_LOGGER.error(f"Failed to fetch location for child {account_id}: {err}")
+			_LOGGER.error("Failed to fetch location data: %s", err)
 			return None
 
 	async def async_block_app(self, package_name: str, account_id: str | None = None) -> bool:

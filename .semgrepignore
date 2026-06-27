@@ -1,0 +1,3 @@
+# The sample standalone compose file keeps the browser container writable.
+# `read_only: true` needs broader runtime testing before recommending it.
+familylink-playwright/docker-compose.standalone.yml
