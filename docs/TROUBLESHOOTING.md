@@ -92,3 +92,17 @@ Fix:
 4. Use the auth service URL that is valid from Home Assistant's network, not just your laptop.
 5. Append the key to the integration URL as `?api_key=<key>`.
 6. See [Docker Standalone Guide](DOCKER_STANDALONE.md) for the supported flow.
+
+## Standalone Container Shows Unhealthy
+
+Symptoms:
+
+- Docker, Dozzle, or Portainer shows the container as unhealthy.
+- The auth service still answers `/api/health`.
+- Container logs mention `curl` is not found.
+
+Fix:
+
+1. Remove any compose healthcheck override that runs `curl`.
+2. Use the image default healthcheck, or set `test: ["CMD", "familylink-healthcheck"]`.
+3. Recreate the container.
