@@ -192,6 +192,11 @@ The helper starts a temporary container, checks `/api/health`, confirms `/api/co
 - Check the health endpoint: `curl http://<your-docker-host>:8099/api/health`
 - Verify Home Assistant can reach the Docker host on port `8099`
 
+### Container shows unhealthy but the service works
+- Do not override the image healthcheck with `curl`; the standalone image does not install `curl`.
+- Either omit the compose `healthcheck:` block and use the image default, or use `test: ["CMD", "familylink-healthcheck"]`.
+- If the health endpoint returns `{"status":"healthy"}`, remove the stale compose override and recreate the container.
+
 ### DNS issues (Pi-hole, AdGuard, etc.)
 - Uncomment the optional `dns` entries in the compose file, or add `--dns 8.8.8.8 --dns 8.8.4.4` to the `docker run` command.
 - If you still have issues, try `network_mode: host` (but you'll lose port mapping)
