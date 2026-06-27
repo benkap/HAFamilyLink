@@ -5,7 +5,10 @@ pytest-homeassistant-custom-component==0.13.109
 pre-commit==4.6.0
 ruff==0.15.19
 
-# Keep the Home Assistant 2024.3.3 test harness resolver stable.
+# Keep the Home Assistant 2024.3.3 test harness resolver stable. Its
+# pytest-homeassistant-custom-component pin also fixes pytest-asyncio and
+# Home Assistant's transitive cryptography version, so do not bump this stack
+# one package at a time.
 coverage==7.4.3
 habluetooth==6.1.0
 bluetooth-data-tools==1.28.4
