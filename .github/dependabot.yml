@@ -41,7 +41,8 @@ updates:
           - "version-update:semver-minor"
 
       # The Home Assistant 2024.3.3 test harness is resolver-sensitive.
-      # Move these pins together only after an explicit harness upgrade.
+      # Move these pins together only after an explicit harness upgrade;
+      # the current harness also pins pytest-asyncio and transitive cryptography.
       - dependency-name: "pytest"
         update-types:
           - "version-update:semver-patch"
