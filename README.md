@@ -10,7 +10,7 @@ This fork builds on [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink
 
 > If you only need the original behavior, start with [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink). This fork is for people who want more schedule visibility, schedule editing, app controls, and standalone auth hardening.
 
-> Quick disclaimer: the Extended code is vibe-coded around my real Home Assistant
+> Disclaimer: the Extended code is vibe-coded around my real Home Assistant
 > setup. It works well for me, and maybe others will find it useful too.
 
 ## Docs
