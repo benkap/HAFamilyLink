@@ -744,8 +744,8 @@ def run_sidecar(args: argparse.Namespace) -> Dict[str, Any]:
         print(
             "noVNC: "
             f"http://127.0.0.1:{args.vnc_port}/vnc.html?autoconnect=true"
-            f"&password={args.vnc_password}"
         )
+        print("noVNC login: enter the configured --vnc-password value if prompted.")
         cookie_count, _ = wait_for_auth_cookies(
             api_url,
             api_key=api_key,
@@ -1318,10 +1318,8 @@ def run_haos(args: argparse.Namespace) -> Dict[str, Any]:
             f"Auth UI: {api_url} (diagnostics only; Start Authentication is already "
             "running and clicking it may show a harmless error)"
         )
-        print(
-            "noVNC: "
-            f"http://{host}:6080/vnc.html?autoconnect=true&password={args.vnc_password}"
-        )
+        print(f"noVNC: http://{host}:6080/vnc.html?autoconnect=true")
+        print("noVNC login: enter the configured --vnc-password value if prompted.")
         cookie_count, _ = wait_for_auth_cookies(
             api_url,
             api_key=api_key,

@@ -42,11 +42,12 @@ click it, the Web UI may show a harmless start error because the session is
 already running.
 
 ```text
-http://127.0.0.1:16080/vnc.html?autoconnect=true&password=familylink
+http://127.0.0.1:16080/vnc.html?autoconnect=true
 ```
 
-Complete the Google login there. The script continues once the auth container
-saves cookies.
+Complete the Google login there. If noVNC asks for a password, enter the
+configured `--vnc-password` value; the default is `familylink`. The script
+continues once the auth container saves cookies.
 
 For post-publish verification against the published image instead of a local
 build:
