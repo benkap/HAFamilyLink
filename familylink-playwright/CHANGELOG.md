@@ -4,8 +4,20 @@ All notable changes to the Google Family Link Auth Add-on will be documented in 
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-06-29
+
+### Changed
+- GHCR release image tags now follow the auth service version instead of the Home Assistant integration release version.
+- Docker build and publish workflows now produce separate add-on and standalone multi-arch manifests with faster pull-request feedback.
+- Standalone Docker documentation and smoke helpers now cover the API-key cookie flow, built-in healthcheck, and supported image tags.
+
+### Fixed
+- Standalone healthchecks now use the bundled `familylink-healthcheck` helper instead of requiring `curl` in the runtime image.
+- Docker build helper input handling and output are clearer for local image builds.
+
 ### Security
 - Updated `cryptography` to 48.0.1 for the standalone auth runtime.
+- Slimmed the auth Docker runtime by removing unused Playwright browser payloads and tightening runtime dependency handling.
 
 ## [1.7.1] - 2026-06-15
 

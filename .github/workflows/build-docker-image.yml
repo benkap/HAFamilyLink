@@ -43,24 +43,11 @@ jobs:
             file: ./familylink-playwright/Dockerfile
             cache_scope: addon
             summary_title: Home Assistant add-on image
-            tags: |
-              type=ref,event=branch
-              type=ref,event=pr
-              type=semver,pattern={{version}}
-              type=semver,pattern={{major}}.{{minor}}
-              type=semver,pattern={{major}}
-              type=raw,value=latest,enable={{is_default_branch}}
           - id: standalone
             label: standalone image
             file: ./familylink-playwright/Dockerfile.standalone
             cache_scope: standalone
             summary_title: Standalone Docker image
-            tags: |
-              type=ref,event=branch,suffix=-standalone
-              type=ref,event=pr,suffix=-standalone
-              type=semver,pattern={{version}},suffix=-standalone
-              type=semver,pattern={{major}}.{{minor}},suffix=-standalone
-              type=raw,value=standalone,enable=true
         platform:
           - linux/amd64
           - linux/arm64
@@ -103,13 +90,65 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Read auth version
+        if: github.event_name != 'pull_request' || matrix.run_on_pr
+        id: auth-version
+        run: |
+          version="$(python3 -c 'import json; print(json.load(open("familylink-playwright/config.json", encoding="utf-8"))["version"])')"
+          case "$version" in
+            *.*.*) ;;
+            *) echo "Auth version must be semantic X.Y.Z: $version" >&2; exit 1 ;;
+          esac
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          {
+            echo "version=$version"
+            echo "major=$major"
+            echo "major_minor=$major.$minor"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare Docker tags
+        if: github.event_name != 'pull_request' || matrix.run_on_pr
+        id: docker-tags
+        run: |
+          version="${{ steps.auth-version.outputs.version }}"
+          major="${{ steps.auth-version.outputs.major }}"
+          major_minor="${{ steps.auth-version.outputs.major_minor }}"
+          release_tags=false
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            release_tags=true
+          fi
+          case "$GITHUB_REF" in
+            refs/tags/v*) release_tags=true ;;
+          esac
+
+          {
+            echo "tags<<EOF"
+            if [ "${{ matrix.image.id }}" = "standalone" ]; then
+              echo "type=ref,event=branch,suffix=-standalone"
+              echo "type=ref,event=pr,suffix=-standalone"
+              echo "type=raw,value=${version}-standalone,enable=${release_tags}"
+              echo "type=raw,value=${major_minor}-standalone,enable=${release_tags}"
+              echo "type=raw,value=standalone,enable=true"
+            else
+              echo "type=ref,event=branch"
+              echo "type=ref,event=pr"
+              echo "type=raw,value=${version},enable=${release_tags}"
+              echo "type=raw,value=${major_minor},enable=${release_tags}"
+              echo "type=raw,value=${major},enable=${release_tags}"
+              echo "type=raw,value=latest,enable={{is_default_branch}}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata
         if: github.event_name != 'pull_request' || matrix.run_on_pr
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: ${{ matrix.image.tags }}
+          tags: ${{ steps.docker-tags.outputs.tags }}
 
       - name: Build image
         if: github.event_name == 'pull_request' && matrix.run_on_pr
@@ -186,22 +225,9 @@ jobs:
           - id: addon
             label: add-on image
             summary_title: Home Assistant add-on image
-            tags: |
-              type=ref,event=branch
-              type=ref,event=pr
-              type=semver,pattern={{version}}
-              type=semver,pattern={{major}}.{{minor}}
-              type=semver,pattern={{major}}
-              type=raw,value=latest,enable={{is_default_branch}}
           - id: standalone
             label: standalone image
             summary_title: Standalone Docker image
-            tags: |
-              type=ref,event=branch,suffix=-standalone
-              type=ref,event=pr,suffix=-standalone
-              type=semver,pattern={{version}},suffix=-standalone
-              type=semver,pattern={{major}}.{{minor}},suffix=-standalone
-              type=raw,value=standalone,enable=true
 
     steps:
       - name: Skip manifest publish on pull request
@@ -212,6 +238,62 @@ jobs:
             echo ""
             echo "Manifest publishing runs on main, tags, releases, and manual runs."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout repository
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@v4
+
+      - name: Read auth version
+        if: github.event_name != 'pull_request'
+        id: auth-version
+        run: |
+          version="$(python3 -c 'import json; print(json.load(open("familylink-playwright/config.json", encoding="utf-8"))["version"])')"
+          case "$version" in
+            *.*.*) ;;
+            *) echo "Auth version must be semantic X.Y.Z: $version" >&2; exit 1 ;;
+          esac
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          {
+            echo "version=$version"
+            echo "major=$major"
+            echo "major_minor=$major.$minor"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare Docker tags
+        if: github.event_name != 'pull_request'
+        id: docker-tags
+        run: |
+          version="${{ steps.auth-version.outputs.version }}"
+          major="${{ steps.auth-version.outputs.major }}"
+          major_minor="${{ steps.auth-version.outputs.major_minor }}"
+          release_tags=false
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            release_tags=true
+          fi
+          case "$GITHUB_REF" in
+            refs/tags/v*) release_tags=true ;;
+          esac
+
+          {
+            echo "tags<<EOF"
+            if [ "${{ matrix.image.id }}" = "standalone" ]; then
+              echo "type=ref,event=branch,suffix=-standalone"
+              echo "type=ref,event=pr,suffix=-standalone"
+              echo "type=raw,value=${version}-standalone,enable=${release_tags}"
+              echo "type=raw,value=${major_minor}-standalone,enable=${release_tags}"
+              echo "type=raw,value=standalone,enable=true"
+            else
+              echo "type=ref,event=branch"
+              echo "type=ref,event=pr"
+              echo "type=raw,value=${version},enable=${release_tags}"
+              echo "type=raw,value=${major_minor},enable=${release_tags}"
+              echo "type=raw,value=${major},enable=${release_tags}"
+              echo "type=raw,value=latest,enable={{is_default_branch}}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Download digests
         if: github.event_name != 'pull_request'
@@ -239,7 +321,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: ${{ matrix.image.tags }}
+          tags: ${{ steps.docker-tags.outputs.tags }}
 
       - name: Create and push manifest
         if: github.event_name != 'pull_request'

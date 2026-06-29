@@ -4,6 +4,11 @@ This page covers the local release checks that need a real Google login. CI stil
 runs the normal unit, HACS, hassfest, Docker build, Trivy, and dependency checks;
 these E2E checks are for the final release-bump gate.
 
+The integration and auth service have separate versions. Publish GitHub releases
+with the integration version, such as `v1.3.0`; the Docker workflow reads
+`familylink-playwright/config.json` and tags auth images with the auth version,
+such as `1.7.2` and `1.7.2-standalone`.
+
 ## Setup
 
 Create a release tooling environment with Python 3.11 or newer. CI currently
