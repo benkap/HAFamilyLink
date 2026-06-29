@@ -46,6 +46,11 @@ The release tooling uses a separate environment because `bump-my-version`
 depends on Pydantic 2, while the Home Assistant test harness currently depends
 on Pydantic 1.
 
+GitHub releases and tags use the integration version. GHCR image tags use the
+auth container version from `familylink-playwright/config.json`, so a release
+tag such as `v1.3.0` can publish auth images such as `1.7.2` and
+`1.7.2-standalone`.
+
 Use the matching bump config, then run the consistency check:
 
 ```bash

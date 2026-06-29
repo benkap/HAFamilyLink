@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.3.0] - 2026-06-29
+
 ### Added
 - Read-only child-level schedule sensors for bedtime, school time, and daily limits. These use the existing coordinator data from Google's `timeLimit` response and do not add extra polling per sensor.
 - Recurring schedule services:
@@ -15,6 +19,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `familylink.set_daily_limit_schedule` updates weekday daily limit minutes and enabled state.
   - School time weekly schedule writes are intentionally out of scope for this change; school time remains read-only at the schedule level, with existing today override controls.
 - Device switches now expose effective bedtime window attributes, including whether today's applied window matches the recurring weekly schedule or comes from a one-day override. They also expose today's bedtime source even when the one-day override disables downtime and no effective window exists.
+- Local release E2E tooling for the Docker sidecar path, including a Home Assistant container setup, config-flow exercise, auth-cookie validation, service/entity checks, and a compact release summary.
+- Version consistency tooling for the integration manifest, auth package, Docker labels, and auth README badge.
+- A Home Assistant test harness with broad unit and integration-style coverage across config flow, coordinator behavior, service handlers, entity platforms, schedule parsing, and client API edge cases.
+- Repository hygiene files for fork maintenance, issue/PR templates, code owners, security policy, and contribution guidance.
+
+### Changed
+- Reworked the README and docs around the forked project scope, installation paths, examples gallery, service reference, troubleshooting, architecture, and release testing.
+- Updated repository and HACS metadata to point at the `benkap/HAFamilyLink` fork and its maintained package layout.
+- Removed Home Assistant core from the runtime requirements file and kept the Home Assistant test harness dependencies isolated in development tooling.
+- Tightened release and Docker publishing behavior so integration releases and auth-container versions can move independently.
+
+### Fixed
+- Hardened auth add-on auto-detection, manual URL handling, and standalone auth API-key behavior for Home Assistant Core/Container users.
+- Improved coordinator and client error handling around transient fetch failures, stale cached data, applied limits, schedule updates, and service failure paths.
+- Cleaned up entity/device metadata, setup/unload behavior, and edge cases across sensors, binary sensors, switches, buttons, and device trackers.
+
+### Security
+- Added dependency review, Dependabot policy, CodeQL/Semgrep/Trivy scanning, and Docker vulnerability reporting workflows.
+- Updated auth/runtime dependencies and release dependencies flagged by security tooling.
+
+### Testing
+- Added CI for pytest with coverage, HACS validation, hassfest, pre-commit, dependency review, Docker builds, Trivy, Semgrep, and release packaging.
+- Raised the pytest suite to full coverage for the custom integration code and pinned the Home Assistant test harness dependency stack for repeatable runs.
 
 ---
 

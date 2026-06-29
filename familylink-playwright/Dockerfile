@@ -54,4 +54,4 @@ LABEL \
     io.hass.name="Google Family Link Auth" \
     io.hass.description="Authentication service for Google Family Link" \
     io.hass.type="addon" \
-    io.hass.version="1.7.1"
+    io.hass.version="1.7.2"

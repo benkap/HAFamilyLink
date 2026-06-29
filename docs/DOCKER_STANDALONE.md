@@ -203,9 +203,14 @@ The helper starts a temporary container, checks `/api/health`, confirms `/api/co
 
 ## Image Tags
 
+Docker image versions follow the auth service version in
+`familylink-playwright/config.json`, not the Home Assistant integration release
+tag. For example, an integration release `v1.3.0` can publish auth images tagged
+`1.7.2` and `1.7.2-standalone`.
+
 | Tag | Description |
 |---|---|
 | `standalone` | Latest standalone image |
-| `<version>-standalone` | Specific version (e.g. `1.2.2-standalone`) |
+| `<auth-version>-standalone` | Specific standalone auth image (e.g. `1.7.2-standalone`) |
 | `latest` | Latest add-on image (for HA OS/Supervised only) |
-| `<version>` | Specific add-on version |
+| `<auth-version>` | Specific add-on auth image |
