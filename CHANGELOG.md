@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.1] - 2026-06-29
+
+### Fixed
+- Fixed the integration options flow so the Settings gear no longer fails with a 500 error on Home Assistant versions where the flow's `config_entry` property is read-only.
+
+---
+
 ## [1.3.0] - 2026-06-29
 
 ### Added
