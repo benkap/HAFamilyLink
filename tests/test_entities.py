@@ -13,6 +13,9 @@ from custom_components.familylink.const import (
 	DEVICE_UNLOCK_ACTION,
 	DOMAIN,
 )
+from custom_components.familylink.entity_helpers import (
+	async_setup_dynamic_device_entities,
+)
 
 from conftest import TEST_CHILD_ID, TEST_DEVICE_ID
 
@@ -69,6 +72,18 @@ def _patch_pending_time_limit_state(coordinator):
 	return pending_states
 
 
+def _capture_coordinator_listeners(coordinator):
+	"""Capture coordinator listeners registered by platform setup."""
+	listeners = []
+
+	def async_add_listener(update_callback, context=None):
+		listeners.append(update_callback)
+		return lambda: None
+
+	coordinator.async_add_listener = async_add_listener
+	return listeners
+
+
 @pytest.mark.parametrize(
 	"platform",
 	[sensor, switch, binary_sensor, button, device_tracker],
@@ -90,6 +105,134 @@ async def test_platform_setup_skips_missing_children_data(
 	)
 
 	assert entities == []
+
+
+@pytest.mark.parametrize(
+	("platform", "expected_unique_ids"),
+	[
+		(
+			sensor,
+			{
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_screen_time_remaining",
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_next_restriction",
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_daily_limit",
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_active_bonus",
+			},
+		),
+		(
+			switch,
+			{f"{DOMAIN}_{TEST_CHILD_ID}_returning-device"},
+		),
+		(
+			binary_sensor,
+			{
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_bedtime_active",
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_schooltime_active",
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_daily_limit_reached",
+			},
+		),
+		(
+			button,
+			{
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_bonus_15min",
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_bonus_30min",
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_bonus_60min",
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_reset_bonus",
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_ring",
+			},
+		),
+	],
+	ids=["sensor", "switch", "binary_sensor", "button"],
+)
+async def test_per_device_entities_are_added_when_device_returns_after_setup(
+	hass,
+	mock_config_entry,
+	harness_coordinator,
+	platform,
+	expected_unique_ids,
+):
+	"""Per-device entities are added when Google reports a device after setup."""
+	child_data = harness_coordinator.data["children_data"][0]
+	child_data["devices"] = []
+	child_data["devices_time_data"] = {}
+	listeners = _capture_coordinator_listeners(harness_coordinator)
+
+	entities = await _entities_for_platform(
+		hass, mock_config_entry, harness_coordinator, platform
+	)
+
+	assert listeners
+	assert expected_unique_ids.isdisjoint({entity.unique_id for entity in entities})
+
+	child_data["devices"] = [
+		{
+			"id": "returning-device",
+			"name": "Galaxy Tab",
+			"model": "SM-P610",
+			"version": "14",
+			"locked": False,
+		}
+	]
+	child_data["devices_time_data"] = {
+		"returning-device": {
+			"remaining_minutes": 87,
+			"daily_limit_minutes": 120,
+			"daily_limit_remaining": 87,
+			"bedtime_active": False,
+			"schooltime_active": False,
+			"bonus_minutes": 0,
+		}
+	}
+
+	for listener in listeners:
+		listener()
+
+	unique_ids = {entity.unique_id for entity in entities}
+	assert expected_unique_ids <= unique_ids
+
+	entity_count = len(entities)
+	for listener in listeners:
+		listener()
+
+	assert len(entities) == entity_count
+
+
+async def test_dynamic_device_setup_skips_payloads_without_child_or_device_id(
+	mock_config_entry,
+	harness_coordinator,
+):
+	"""Malformed child/device payloads do not create unusable device entities."""
+	harness_coordinator.data["children_data"] = [
+		{
+			"child_name": "Missing Child ID",
+			"devices": [{"id": "orphan-device", "name": "Orphan"}],
+		},
+		{
+			"child_id": TEST_CHILD_ID,
+			"child_name": "Alex",
+			"devices": [{"name": "Missing Device ID"}],
+		},
+	]
+	added_entities = []
+	created_entities = []
+
+	def async_add_entities(new_entities, update_before_add=False):
+		added_entities.extend(new_entities)
+
+	def create_entities(coordinator, device, child_id, child_name):
+		created_entities.append((coordinator, device, child_id, child_name))
+		return [device["id"]]
+
+	async_setup_dynamic_device_entities(
+		mock_config_entry,
+		harness_coordinator,
+		async_add_entities,
+		create_entities,
+		"test",
+	)
+
+	assert added_entities == []
+	assert created_entities == []
 
 
 async def test_location_tracking_disabled_skips_tracker_and_battery_sensor(

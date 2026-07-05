@@ -21,6 +21,7 @@ from .const import (
 	LOGGER_NAME,
 )
 from .coordinator import FamilyLinkDataUpdateCoordinator
+from .entity_helpers import async_setup_dynamic_device_entities
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -32,8 +33,6 @@ async def async_setup_entry(
 ) -> None:
 	"""Set up Family Link binary sensor entities from a config entry."""
 	coordinator = hass.data[DOMAIN][entry.entry_id]
-
-	entities = []
 
 	# Check if data is available (should be after async_config_entry_first_refresh)
 	if not coordinator.data or "children_data" not in coordinator.data:
@@ -64,49 +63,51 @@ async def async_setup_entry(
 			model="Family Link Account",
 		)
 
-		# Create binary sensors for each device
-		for device in child_data.get("devices", []):
-			device_id = device["id"]
-			device_name = device.get("name", f"Device {device_id}")
+	async_setup_dynamic_device_entities(
+		entry,
+		coordinator,
+		async_add_entities,
+		_create_device_binary_sensors,
+		"binary sensor",
+	)
 
-			# Bedtime active sensor
-			entities.append(
-				BedtimeActiveBinarySensor(
-					coordinator,
-					device_id,
-					device_name,
-					device,
-					child_id,
-					child_name,
-				)
-			)
 
-			# School time active sensor
-			entities.append(
-				SchoolTimeActiveBinarySensor(
-					coordinator,
-					device_id,
-					device_name,
-					device,
-					child_id,
-					child_name,
-				)
-			)
+def _create_device_binary_sensors(
+	coordinator: FamilyLinkDataUpdateCoordinator,
+	device: dict[str, Any],
+	child_id: str,
+	child_name: str,
+) -> list[DeviceTimeBinarySensor]:
+	"""Create binary sensor entities for one Family Link device."""
+	device_id = device["id"]
+	device_name = device.get("name", f"Device {device_id}")
 
-			# Daily limit reached sensor
-			entities.append(
-				DailyLimitReachedBinarySensor(
-					coordinator,
-					device_id,
-					device_name,
-					device,
-					child_id,
-					child_name,
-				)
-			)
-
-	_LOGGER.debug(f"Created {len(entities)} binary sensor entities")
-	async_add_entities(entities, update_before_add=True)
+	return [
+		BedtimeActiveBinarySensor(
+			coordinator,
+			device_id,
+			device_name,
+			device,
+			child_id,
+			child_name,
+		),
+		SchoolTimeActiveBinarySensor(
+			coordinator,
+			device_id,
+			device_name,
+			device,
+			child_id,
+			child_name,
+		),
+		DailyLimitReachedBinarySensor(
+			coordinator,
+			device_id,
+			device_name,
+			device,
+			child_id,
+			child_name,
+		),
+	]
 
 
 class DeviceTimeBinarySensor(CoordinatorEntity, BinarySensorEntity):

@@ -14,6 +14,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, LOGGER_NAME
 from .coordinator import FamilyLinkDataUpdateCoordinator
+from .entity_helpers import async_setup_dynamic_device_entities
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -25,8 +26,6 @@ async def async_setup_entry(
 ) -> None:
 	"""Set up Family Link button entities from a config entry."""
 	coordinator = hass.data[DOMAIN][entry.entry_id]
-
-	entities = []
 
 	# Check if data is available (should be after async_config_entry_first_refresh)
 	if not coordinator.data or "children_data" not in coordinator.data:
@@ -57,17 +56,29 @@ async def async_setup_entry(
 			model="Family Link Account",
 		)
 
-		for device in child_data.get("devices", []):
-			# Create 4 time bonus buttons per device (15min, 30min, 60min, cancel)
-			entities.append(FamilyLinkTimeBonusButton(coordinator, device, child_id, child_name, 15))
-			entities.append(FamilyLinkTimeBonusButton(coordinator, device, child_id, child_name, 30))
-			entities.append(FamilyLinkTimeBonusButton(coordinator, device, child_id, child_name, 60))
-			entities.append(CancelTimeBonusButton(coordinator, device, child_id, child_name))
-			# Ring button (make the device sound to help locate it)
-			entities.append(RingDeviceButton(coordinator, device, child_id, child_name))
+	async_setup_dynamic_device_entities(
+		entry,
+		coordinator,
+		async_add_entities,
+		_create_device_buttons,
+		"button",
+	)
 
-	_LOGGER.debug(f"Created {len(entities)} time bonus button entities")
-	async_add_entities(entities, update_before_add=True)
+
+def _create_device_buttons(
+	coordinator: FamilyLinkDataUpdateCoordinator,
+	device: dict[str, Any],
+	child_id: str,
+	child_name: str,
+) -> list[ButtonEntity]:
+	"""Create button entities for one Family Link device."""
+	return [
+		FamilyLinkTimeBonusButton(coordinator, device, child_id, child_name, 15),
+		FamilyLinkTimeBonusButton(coordinator, device, child_id, child_name, 30),
+		FamilyLinkTimeBonusButton(coordinator, device, child_id, child_name, 60),
+		CancelTimeBonusButton(coordinator, device, child_id, child_name),
+		RingDeviceButton(coordinator, device, child_id, child_name),
+	]
 
 
 class FamilyLinkTimeBonusButton(CoordinatorEntity, ButtonEntity):

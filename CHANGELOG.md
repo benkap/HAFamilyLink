@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Per-device entities are now added dynamically when Google reports a supervised device after config-entry setup. If a device disappears and later returns, the integration can restore its switches, sensors, binary sensors, and buttons on the next coordinator refresh without requiring a config-entry reload.
+
 ---
 
 ## [1.3.1] - 2026-06-29
