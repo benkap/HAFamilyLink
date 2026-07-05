@@ -20,6 +20,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_ENABLE_LOCATION_TRACKING, DOMAIN, LOGGER_NAME
 from .coordinator import FamilyLinkDataUpdateCoordinator
+from .entity_helpers import async_setup_dynamic_device_entities
 from .schedules import DAY_NAMES, format_time_pair
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -134,18 +135,34 @@ async def async_setup_entry(
         if entry.options.get(CONF_ENABLE_LOCATION_TRACKING, entry.data.get(CONF_ENABLE_LOCATION_TRACKING, False)):
             entities.append(FamilyLinkBatteryLevelSensor(coordinator, child_id, child_name))
 
-        # Create device sensors for each device (4 sensors per device)
-        for device in child_data.get("devices", []):
-            device_id = device["id"]
-            device_name = device.get("name", "Unknown Device")
-
-            entities.append(ScreenTimeRemainingSensor(coordinator, child_id, child_name, device_id, device_name))
-            entities.append(NextRestrictionSensor(coordinator, child_id, child_name, device_id, device_name))
-            entities.append(DailyLimitDeviceSensor(coordinator, child_id, child_name, device_id, device_name))
-            entities.append(ActiveBonusSensor(coordinator, child_id, child_name, device_id, device_name))
-
-    _LOGGER.debug(f"Created {len(entities)} total sensor entities")
+    _LOGGER.debug(f"Created {len(entities)} child-level sensor entities")
     async_add_entities(entities, update_before_add=True)
+
+    async_setup_dynamic_device_entities(
+        entry,
+        coordinator,
+        async_add_entities,
+        _create_device_sensors,
+        "sensor",
+    )
+
+
+def _create_device_sensors(
+    coordinator: FamilyLinkDataUpdateCoordinator,
+    device: dict[str, Any],
+    child_id: str,
+    child_name: str,
+) -> list[SensorEntity]:
+    """Create sensor entities for one Family Link device."""
+    device_id = device["id"]
+    device_name = device.get("name", "Unknown Device")
+
+    return [
+        ScreenTimeRemainingSensor(coordinator, child_id, child_name, device_id, device_name),
+        NextRestrictionSensor(coordinator, child_id, child_name, device_id, device_name),
+        DailyLimitDeviceSensor(coordinator, child_id, child_name, device_id, device_name),
+        ActiveBonusSensor(coordinator, child_id, child_name, device_id, device_name),
+    ]
 
 
 class ScreenTimeRemainingSensor(CoordinatorEntity, SensorEntity):

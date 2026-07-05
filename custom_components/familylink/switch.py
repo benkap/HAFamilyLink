@@ -25,6 +25,7 @@ from .const import (
 	LOGGER_NAME,
 )
 from .coordinator import FamilyLinkDataUpdateCoordinator
+from .entity_helpers import async_setup_dynamic_device_entities
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -39,7 +40,7 @@ async def async_setup_entry(
 
 	entities = []
 
-	# Create switch entities for each child and their devices
+	# Create child-level switch entities.
 	for child_data in coordinator.data.get("children_data", []) if coordinator.data else []:
 		child_id = child_data["child_id"]
 		child_name = child_data["child_name"]
@@ -51,12 +52,27 @@ async def async_setup_entry(
 		entities.append(FamilyLinkSchoolTimeSwitch(coordinator, child_id, child_name))
 		entities.append(FamilyLinkDailyLimitSwitch(coordinator, child_id, child_name))
 
-		# Create device lock/unlock switches for each device
-		for device in child_data.get("devices", []):
-			entities.append(FamilyLinkDeviceSwitch(coordinator, device, child_id, child_name))
+	if entities:
+		_LOGGER.debug(f"Created {len(entities)} child-level switch entities")
+		async_add_entities(entities, update_before_add=True)
 
-	_LOGGER.debug(f"Created {len(entities)} total switch entities")
-	async_add_entities(entities, update_before_add=True)
+	async_setup_dynamic_device_entities(
+		entry,
+		coordinator,
+		async_add_entities,
+		_create_device_switches,
+		"switch",
+	)
+
+
+def _create_device_switches(
+	coordinator: FamilyLinkDataUpdateCoordinator,
+	device: dict[str, Any],
+	child_id: str,
+	child_name: str,
+) -> list[FamilyLinkDeviceSwitch]:
+	"""Create switch entities for one Family Link device."""
+	return [FamilyLinkDeviceSwitch(coordinator, device, child_id, child_name)]
 
 
 class FamilyLinkDeviceSwitch(CoordinatorEntity, SwitchEntity):
