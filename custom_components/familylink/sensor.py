@@ -99,6 +99,7 @@ async def async_setup_entry(
 
         # Device sensors
         entities.append(FamilyLinkDeviceCountSensor(coordinator, child_id, child_name))
+        entities.append(FamilyLinkDevicePolicyStateSensor(coordinator, child_id, child_name))
         entities.append(FamilyLinkChildInfoSensor(coordinator, child_id, child_name))
         entities.append(FamilyLinkScheduleSensor(
             coordinator,
@@ -158,11 +159,135 @@ def _create_device_sensors(
     device_name = device.get("name", "Unknown Device")
 
     return [
+        DeviceDailyScreenTimeSensor(coordinator, child_id, child_name, device_id, device_name),
         ScreenTimeRemainingSensor(coordinator, child_id, child_name, device_id, device_name),
         NextRestrictionSensor(coordinator, child_id, child_name, device_id, device_name),
         DailyLimitDeviceSensor(coordinator, child_id, child_name, device_id, device_name),
         ActiveBonusSensor(coordinator, child_id, child_name, device_id, device_name),
     ]
+
+
+class DeviceDailyScreenTimeSensor(CoordinatorEntity, SensorEntity):
+    """Sensor showing today's screen time for one device."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_icon = "mdi:timer-outline"
+
+    def __init__(
+        self,
+        coordinator: FamilyLinkDataUpdateCoordinator,
+        child_id: str,
+        child_name: str,
+        device_id: str,
+        device_name: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._child_id = child_id
+        self._child_name = child_name
+        self._device_id = device_id
+        self._device_name = device_name
+        self._attr_name = f"{device_name} Daily Screen Time"
+        self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_daily_screen_time"
+
+    def _get_child_data(self) -> dict[str, Any] | None:
+        """Return coordinator data for this sensor's child."""
+        if not self.coordinator.data:
+            return None
+        return next(
+            (
+                child_data
+                for child_data in self.coordinator.data.get("children_data", [])
+                if child_data.get("child_id") == self._child_id
+            ),
+            None,
+        )
+
+    def _get_usage_data(self) -> dict[str, Any] | None:
+        """Return per-device usage data."""
+        child_data = self._get_child_data()
+        if not child_data:
+            return None
+        usage_data = child_data.get("device_usage_data", {}).get(self._device_id)
+        return usage_data if isinstance(usage_data, dict) else None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self._child_id}_{self._device_id}")},
+            name=self._device_name,
+            manufacturer="Google",
+            model="Family Link Device",
+            via_device=(DOMAIN, self._child_id),
+        )
+
+    @property
+    def native_value(self) -> float | int | None:
+        """Return today's device total in minutes."""
+        usage_data = self._get_usage_data()
+        return usage_data.get("total_minutes") if usage_data else None
+
+    @property
+    def available(self) -> bool:
+        """Return whether a per-device total is available."""
+        usage_data = self._get_usage_data()
+        return (
+            self.coordinator.last_update_success
+            and usage_data is not None
+            and usage_data.get("total_minutes") is not None
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return usage source and app-attribution details."""
+        attributes: dict[str, Any] = {
+            "child_id": self._child_id,
+            "child_name": self._child_name,
+            "device_id": self._device_id,
+            "device_name": self._device_name,
+        }
+        usage_data = self._get_usage_data()
+        if not usage_data:
+            return attributes
+
+        attributes.update(
+            {
+                "total_source": usage_data.get("total_source"),
+                "app_attribution_status": usage_data.get("attribution_status"),
+                "app_attributed_minutes": usage_data.get("app_attributed_minutes", 0),
+                "app_attributed_seconds": usage_data.get("app_attributed_seconds", 0),
+                "session_count": usage_data.get("session_count", 0),
+                "date": str(usage_data.get("date")) if usage_data.get("date") else None,
+            }
+        )
+
+        app_breakdown = usage_data.get("app_breakdown", {})
+        child_data = self._get_child_data()
+        if app_breakdown and child_data:
+            app_names = {
+                app.get("packageName"): app.get("title", app.get("packageName"))
+                for app in child_data.get("apps", [])
+                if app.get("packageName")
+            }
+            apps = [
+                {
+                    "name": app_names.get(package, package),
+                    "package": package,
+                    "minutes": round(seconds / 60, 1),
+                }
+                for package, seconds in sorted(
+                    app_breakdown.items(), key=lambda item: item[1], reverse=True
+                )
+            ]
+            truncated_apps, was_truncated = _truncate_app_list(apps, attributes)
+            attributes["apps"] = truncated_apps
+            if was_truncated:
+                attributes["truncated"] = True
+
+        return attributes
 
 
 class ScreenTimeRemainingSensor(CoordinatorEntity, SensorEntity):
@@ -551,6 +676,67 @@ class FamilyLinkScheduleSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
             attributes["schedule_timezone"] = child_data.get("schedule_timezone")
             attributes["schedule_timezone_source"] = child_data.get("schedule_timezone_source")
 
+        return attributes
+
+
+class FamilyLinkDevicePolicyStateSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
+    """Sensor describing effective policy consistency across a child's devices."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:devices"
+
+    def __init__(
+        self,
+        coordinator: FamilyLinkDataUpdateCoordinator,
+        child_id: str,
+        child_name: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
+        self._attr_name = f"{child_name} Device Policy State"
+        self._attr_unique_id = f"{DOMAIN}_{child_id}_device_policy_state"
+
+    def _get_policy_state(self) -> dict[str, Any] | None:
+        """Return this child's device policy summary."""
+        child_data = self._get_child_data()
+        if not child_data:
+            return None
+        policy_state = child_data.get("device_policy_state")
+        return policy_state if isinstance(policy_state, dict) else None
+
+    @property
+    def native_value(self) -> str | None:
+        """Return uniform, mixed, overridden, or unknown."""
+        policy_state = self._get_policy_state()
+        return policy_state.get("state") if policy_state else None
+
+    @property
+    def available(self) -> bool:
+        """Return whether policy data is available."""
+        return self.coordinator.last_update_success and self._get_policy_state() is not None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return policy dimensions and effective per-device values."""
+        attributes: dict[str, Any] = {
+            "child_id": self._child_id,
+            "child_name": self._child_name,
+            "recurring_schedule_scope": "child",
+        }
+        policy_state = self._get_policy_state()
+        if policy_state:
+            attributes.update(
+                {
+                    "effective_policy_scope": "device",
+                    "device_count": policy_state.get("device_count", 0),
+                    "configured_policy": policy_state.get("configured", {}),
+                    "dimensions": policy_state.get("dimensions", {}),
+                    "configured_effective_differences": policy_state.get(
+                        "configured_effective_differences", []
+                    ),
+                    "devices": policy_state.get("devices", []),
+                }
+            )
         return attributes
 
 

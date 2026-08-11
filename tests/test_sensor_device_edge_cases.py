@@ -11,9 +11,11 @@ from custom_components.familylink.const import DOMAIN
 from custom_components.familylink.sensor import (
     ActiveBonusSensor,
     DailyLimitDeviceSensor,
+    DeviceDailyScreenTimeSensor,
     FamilyLinkBatteryLevelSensor,
     FamilyLinkChildInfoSensor,
     FamilyLinkDeviceCountSensor,
+    FamilyLinkDevicePolicyStateSensor,
     NextRestrictionSensor,
     ScreenTimeRemainingSensor,
 )
@@ -88,6 +90,7 @@ async def test_setup_uses_unknown_device_name_for_device_sensor_identity(
     )
 
     expected_unique_ids = {
+        f"{DOMAIN}_{TEST_CHILD_ID}_{device_id}_daily_screen_time",
         f"{DOMAIN}_{TEST_CHILD_ID}_{device_id}_screen_time_remaining",
         f"{DOMAIN}_{TEST_CHILD_ID}_{device_id}_next_restriction",
         f"{DOMAIN}_{TEST_CHILD_ID}_{device_id}_daily_limit",
@@ -100,6 +103,9 @@ async def test_setup_uses_unknown_device_name_for_device_sensor_identity(
     }
 
     assert set(device_entities) == expected_unique_ids
+    assert device_entities[
+        f"{DOMAIN}_{TEST_CHILD_ID}_{device_id}_daily_screen_time"
+    ].name == "Unknown Device Daily Screen Time"
     assert device_entities[
         f"{DOMAIN}_{TEST_CHILD_ID}_{device_id}_screen_time_remaining"
     ].name == "Unknown Device Screen Time Remaining"
@@ -203,6 +209,145 @@ def test_device_sensors_return_empty_state_when_device_time_data_is_missing() ->
 
     coordinator.last_update_success = False
     assert all(entity.available is False for entity in entities.values())
+
+
+def test_device_daily_screen_time_reports_pending_app_attribution() -> None:
+    """Native device totals stay usable while Google app sessions are still pending."""
+    entity = DeviceDailyScreenTimeSensor(
+        _coordinator(
+            {
+                "device_usage_data": {
+                    TEST_DEVICE_ID: {
+                        "total_minutes": 2,
+                        "total_source": "applied_time_limits",
+                        "app_attributed_seconds": 0,
+                        "app_attributed_minutes": 0,
+                        "attribution_status": "pending",
+                        "session_count": 0,
+                        "app_breakdown": {},
+                        "date": "2026-08-11",
+                    }
+                }
+            }
+        ),
+        TEST_CHILD_ID,
+        CHILD_NAME,
+        TEST_DEVICE_ID,
+        DEVICE_NAME,
+    )
+
+    assert entity.native_value == 2
+    assert entity.available is True
+    assert entity.extra_state_attributes == {
+        "child_id": TEST_CHILD_ID,
+        "child_name": CHILD_NAME,
+        "device_id": TEST_DEVICE_ID,
+        "device_name": DEVICE_NAME,
+        "total_source": "applied_time_limits",
+        "app_attribution_status": "pending",
+        "app_attributed_minutes": 0,
+        "app_attributed_seconds": 0,
+        "session_count": 0,
+        "date": "2026-08-11",
+    }
+
+
+def test_device_daily_screen_time_handles_missing_coordinator_data() -> None:
+    """The device usage sensor is unavailable until its child payload arrives."""
+    coordinator = _coordinator()
+    coordinator.data = None
+    entity = DeviceDailyScreenTimeSensor(
+        coordinator,
+        TEST_CHILD_ID,
+        CHILD_NAME,
+        TEST_DEVICE_ID,
+        DEVICE_NAME,
+    )
+
+    assert entity.native_value is None
+    assert entity.available is False
+    assert entity.extra_state_attributes == {
+        "child_id": TEST_CHILD_ID,
+        "child_name": CHILD_NAME,
+        "device_id": TEST_DEVICE_ID,
+        "device_name": DEVICE_NAME,
+    }
+
+    coordinator.data = {"children_data": []}
+    assert entity.native_value is None
+
+    coordinator.data = {
+        "children_data": [
+            {"child_id": TEST_CHILD_ID, "child_name": CHILD_NAME}
+        ]
+    }
+    assert entity.extra_state_attributes == {
+        "child_id": TEST_CHILD_ID,
+        "child_name": CHILD_NAME,
+        "device_id": TEST_DEVICE_ID,
+        "device_name": DEVICE_NAME,
+    }
+
+
+def test_device_daily_screen_time_formats_apps_and_marks_truncation(monkeypatch) -> None:
+    """Per-device app details use friendly names and honor HA's attribute cap."""
+    monkeypatch.setattr(
+        sensor_platform,
+        "_truncate_app_list",
+        lambda apps, attributes: (apps[:1], True),
+    )
+    entity = DeviceDailyScreenTimeSensor(
+        _coordinator(
+            {
+                "apps": [
+                    {"packageName": "com.video", "title": "Video"},
+                    {"packageName": "com.music"},
+                ],
+                "device_usage_data": {
+                    TEST_DEVICE_ID: {
+                        "total_minutes": 3,
+                        "total_source": "app_usage_sessions",
+                        "app_attributed_seconds": 180,
+                        "app_attributed_minutes": 3,
+                        "attribution_status": "reported",
+                        "session_count": 2,
+                        "app_breakdown": {
+                            "com.music": 60,
+                            "com.video": 120,
+                        },
+                    }
+                },
+            }
+        ),
+        TEST_CHILD_ID,
+        CHILD_NAME,
+        TEST_DEVICE_ID,
+        DEVICE_NAME,
+    )
+
+    assert entity.extra_state_attributes["apps"] == [
+        {"name": "Video", "package": "com.video", "minutes": 2.0}
+    ]
+    assert entity.extra_state_attributes["truncated"] is True
+
+
+def test_device_policy_sensor_is_unavailable_without_matching_child() -> None:
+    """Policy state remains unavailable before matching child data exists."""
+    coordinator = _coordinator()
+    coordinator.data = {"children_data": []}
+    entity = FamilyLinkDevicePolicyStateSensor(
+        coordinator,
+        TEST_CHILD_ID,
+        CHILD_NAME,
+    )
+
+    assert entity.native_value is None
+    assert entity.available is False
+    assert entity.extra_state_attributes == {
+        "child_id": TEST_CHILD_ID,
+        "child_name": CHILD_NAME,
+        "recurring_schedule_scope": "child",
+    }
 
 
 def test_device_sensors_use_time_data_defaults_for_derived_values() -> None:

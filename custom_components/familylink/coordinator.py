@@ -27,6 +27,250 @@ from .schedules import describe_effective_window, effective_bedtime_window_sourc
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
 
+def _summarize_boolean_values(values: list[Any]) -> str:
+	"""Summarize a per-device boolean policy dimension."""
+	if not values or not all(isinstance(value, bool) for value in values):
+		return "unknown"
+	if all(values):
+		return "all_enabled"
+	if not any(values):
+		return "all_disabled"
+	return "mixed"
+
+
+def _summarize_policy_values(values: list[Any]) -> dict[str, Any]:
+	"""Summarize whether a per-device policy value is uniform."""
+	if not values or any(value is None for value in values):
+		return {"state": "unknown", "value": None}
+
+	first_value = values[0]
+	if all(value == first_value for value in values[1:]):
+		return {"state": "uniform", "value": first_value}
+	return {"state": "mixed", "value": None}
+
+
+def _today_schedule_slot(
+	schedule: list[dict[str, Any]] | None,
+	schedule_today: int | None,
+) -> dict[str, Any] | None:
+	"""Return the recurring schedule slot for the current Google weekday."""
+	if not isinstance(schedule, list) or not isinstance(schedule_today, int):
+		return None
+	return next(
+		(
+			slot
+			for slot in schedule
+			if isinstance(slot, dict) and slot.get("day") == schedule_today
+		),
+		None,
+	)
+
+
+def _build_device_usage_data(
+	devices: list[dict[str, Any]],
+	devices_time_data: dict[str, dict[str, Any]],
+	screen_time: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+	"""Merge native per-device totals with app-session attribution."""
+	device_breakdown = screen_time.get("device_breakdown", {}) if screen_time else {}
+	if not isinstance(device_breakdown, dict):
+		device_breakdown = {}
+	usage_date = screen_time.get("date") if screen_time else None
+	result: dict[str, dict[str, Any]] = {}
+
+	for device in devices:
+		device_id = device.get("id")
+		if not isinstance(device_id, str) or not device_id:
+			continue
+
+		time_data = devices_time_data.get(device_id, {})
+		app_usage = device_breakdown.get(device_id, {})
+		app_seconds = app_usage.get("total_seconds", 0)
+		if not isinstance(app_seconds, (int, float)) or isinstance(app_seconds, bool):
+			app_seconds = 0
+		session_count = app_usage.get("session_count", 0)
+		if not isinstance(session_count, int) or isinstance(session_count, bool):
+			session_count = 0
+
+		applied_minutes = time_data.get("used_minutes")
+		if isinstance(applied_minutes, (int, float)) and not isinstance(applied_minutes, bool):
+			total_minutes = applied_minutes
+			total_source = "applied_time_limits"
+		elif app_usage:
+			total_minutes = round(app_seconds / 60, 1)
+			total_source = "app_usage_sessions"
+		else:
+			total_minutes = None
+			total_source = "unavailable"
+
+		if session_count > 0:
+			attribution_status = "reported"
+		elif isinstance(total_minutes, (int, float)) and total_minutes > 0:
+			attribution_status = "pending"
+		elif total_minutes == 0:
+			attribution_status = "none"
+		else:
+			attribution_status = "unknown"
+
+		result[device_id] = {
+			"total_minutes": total_minutes,
+			"total_source": total_source,
+			"app_attributed_seconds": app_seconds,
+			"app_attributed_minutes": round(app_seconds / 60, 1),
+			"attribution_status": attribution_status,
+			"session_count": session_count,
+			"app_breakdown": app_usage.get("app_breakdown", {}),
+			"date": app_usage.get("date", usage_date),
+		}
+
+	return result
+
+
+def _build_device_policy_state(
+	devices: list[dict[str, Any]],
+	devices_time_data: dict[str, dict[str, Any]],
+	*,
+	bedtime_enabled: bool | None,
+	school_time_enabled: bool | None,
+	daily_limit_schedule: list[dict[str, Any]] | None,
+	schedule_today: int | None,
+) -> dict[str, Any]:
+	"""Describe uniform, mixed, and overridden policy across devices."""
+	device_rows: list[dict[str, Any]] = []
+	for device in devices:
+		device_id = device.get("id")
+		if not isinstance(device_id, str) or not device_id:
+			continue
+
+		time_data = devices_time_data.get(device_id)
+		if not isinstance(time_data, dict):
+			time_data = {}
+		device_rows.append(
+			{
+				"device_id": device_id,
+				"device_name": device.get("name", "Unknown Device"),
+				"daily_limit_enabled": time_data.get("daily_limit_enabled"),
+				"daily_limit_minutes": time_data.get("daily_limit_minutes"),
+				"bedtime_enabled_today": (
+					time_data.get("bedtime_window") is not None
+					if "bedtime_window" in time_data
+					else None
+				),
+				"bedtime_window": (
+					time_data.get("bedtime_window_label") or "disabled"
+					if "bedtime_window" in time_data
+					else None
+				),
+				"bedtime_window_differs_from_weekly": time_data.get(
+					"bedtime_window_differs_from_weekly"
+				),
+				"bedtime_active": time_data.get("bedtime_active"),
+				"school_time_enabled_today": (
+					time_data.get("schooltime_window") is not None
+					if "schooltime_window" in time_data
+					else None
+				),
+				"school_time_window": (
+					time_data.get("schooltime_window") or "disabled"
+					if "schooltime_window" in time_data
+					else None
+				),
+				"school_time_active": time_data.get("schooltime_active"),
+			}
+		)
+
+	dimensions = {
+		"daily_limit_enabled": {
+			"state": _summarize_boolean_values(
+				[row["daily_limit_enabled"] for row in device_rows]
+			)
+		},
+		"daily_limit_minutes": _summarize_policy_values(
+			[row["daily_limit_minutes"] for row in device_rows]
+		),
+		"bedtime_enabled_today": {
+			"state": _summarize_boolean_values(
+				[row["bedtime_enabled_today"] for row in device_rows]
+			)
+		},
+		"bedtime_window": _summarize_policy_values(
+			[row["bedtime_window"] for row in device_rows]
+		),
+		"school_time_enabled_today": {
+			"state": _summarize_boolean_values(
+				[row["school_time_enabled_today"] for row in device_rows]
+			)
+		},
+		"school_time_window": _summarize_policy_values(
+			[row["school_time_window"] for row in device_rows]
+		),
+	}
+
+	configured_effective_differences: list[str] = []
+	for dimension, configured_value in (
+		("bedtime_enabled_today", bedtime_enabled),
+		("school_time_enabled_today", school_time_enabled),
+	):
+		effective_state = dimensions[dimension]["state"]
+		if isinstance(configured_value, bool) and effective_state in {
+			"all_enabled",
+			"all_disabled",
+		}:
+			effective_value = effective_state == "all_enabled"
+			if configured_value != effective_value:
+				configured_effective_differences.append(dimension)
+	if any(row.get("bedtime_window_differs_from_weekly") is True for row in device_rows):
+		configured_effective_differences.append("bedtime_window")
+
+	daily_slot = _today_schedule_slot(daily_limit_schedule, schedule_today)
+	configured_daily_enabled = None
+	configured_daily_minutes = None
+	if daily_slot:
+		configured_daily_enabled = daily_slot.get("enabled")
+		effective_daily_state = dimensions["daily_limit_enabled"]["state"]
+		if isinstance(configured_daily_enabled, bool) and effective_daily_state in {
+			"all_enabled",
+			"all_disabled",
+		}:
+			if configured_daily_enabled != (effective_daily_state == "all_enabled"):
+				configured_effective_differences.append("daily_limit_enabled")
+		configured_daily_minutes = daily_slot.get("minutes")
+		effective_daily_minutes = dimensions["daily_limit_minutes"]
+		if (
+			configured_daily_enabled is True
+			and effective_daily_state == "all_enabled"
+			and isinstance(configured_daily_minutes, int)
+			and effective_daily_minutes["state"] == "uniform"
+			and configured_daily_minutes != effective_daily_minutes["value"]
+		):
+			configured_effective_differences.append("daily_limit_minutes")
+
+	dimension_states = [dimension["state"] for dimension in dimensions.values()]
+	if any(state == "mixed" for state in dimension_states):
+		state = "mixed"
+	elif not device_rows or any(state == "unknown" for state in dimension_states):
+		state = "unknown"
+	elif configured_effective_differences:
+		state = "overridden"
+	else:
+		state = "uniform"
+
+	return {
+		"state": state,
+		"scope": "child_recurring_with_device_effective_state",
+		"device_count": len(device_rows),
+		"configured": {
+			"bedtime_enabled": bedtime_enabled,
+			"school_time_enabled": school_time_enabled,
+			"daily_limit_enabled_today": configured_daily_enabled,
+			"daily_limit_minutes_today": configured_daily_minutes,
+		},
+		"dimensions": dimensions,
+		"configured_effective_differences": configured_effective_differences,
+		"devices": device_rows,
+	}
+
+
 class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 	"""Class to manage fetching data from the Family Link API."""
 
@@ -401,6 +645,21 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 								_LOGGER.debug(f"Using cached screen time for {child_name}")
 							break
 
+			# Build per-device usage attribution and effective policy summaries.
+			device_usage_data = _build_device_usage_data(
+				devices,
+				devices_time_data,
+				screen_time,
+			)
+			device_policy_state = _build_device_policy_state(
+				devices,
+				devices_time_data,
+				bedtime_enabled=bedtime_enabled,
+				school_time_enabled=school_time_enabled,
+				daily_limit_schedule=daily_limit_schedule,
+				schedule_today=time_limit_config.get("schedule_today"),
+			)
+
 			# Fetch location data for this child (if enabled)
 			location = None
 			if self._location_tracking_enabled:
@@ -433,6 +692,8 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				"child_name": child_name,
 				"devices": devices,
 				"screen_time": screen_time,
+				"device_usage_data": device_usage_data,
+				"device_policy_state": device_policy_state,
 				"location": location,
 				"apps": apps_usage_data.get("apps", []) if apps_usage_data else [],
 				"app_usage_sessions": apps_usage_data.get("appUsageSessions", []) if apps_usage_data else [],

@@ -605,6 +605,8 @@ class FamilyLinkClient:
 			- minutes: Minutes component
 			- seconds: Seconds component
 			- app_breakdown: Per-app usage breakdown
+			- device_breakdown: Per-device totals and app usage keyed by device ID
+			- unattributed: Sessions without a usable device ID
 		"""
 		if target_date is None:
 			target_date = dt_util.now()
@@ -614,6 +616,12 @@ class FamilyLinkClient:
 				data = await self.async_get_apps_and_usage(account_id)
 			total_seconds = 0
 			app_breakdown = {}
+			device_breakdown: dict[str, dict[str, Any]] = {}
+			unattributed = {
+				"total_seconds": 0.0,
+				"session_count": 0,
+				"app_breakdown": {},
+			}
 
 			all_sessions = data.get("appUsageSessions", [])
 			_LOGGER.debug(f"Found {len(all_sessions)} total app usage sessions")
@@ -641,10 +649,37 @@ class FamilyLinkClient:
 					package_name = session.get("appId", {}).get("androidAppPackageName", "unknown")
 					app_breakdown[package_name] = app_breakdown.get(package_name, 0) + usage_seconds
 
+					device_id = session.get("deviceMudId")
+					if isinstance(device_id, str) and device_id:
+						device_usage = device_breakdown.setdefault(
+							device_id,
+							{
+								"total_seconds": 0.0,
+								"session_count": 0,
+								"app_breakdown": {},
+							},
+						)
+					else:
+						device_usage = unattributed
+
+					device_usage["total_seconds"] += usage_seconds
+					device_usage["session_count"] += 1
+					device_apps = device_usage["app_breakdown"]
+					device_apps[package_name] = device_apps.get(package_name, 0) + usage_seconds
+
 			# Convert to hours, minutes, seconds
 			hours = int(total_seconds // 3600)
 			minutes = int((total_seconds % 3600) // 60)
 			seconds = int(total_seconds % 60)
+			for device_usage in [*device_breakdown.values(), unattributed]:
+				device_total = device_usage["total_seconds"]
+				device_hours = int(device_total // 3600)
+				device_minutes = int((device_total % 3600) // 60)
+				device_seconds = int(device_total % 60)
+				device_usage["formatted"] = (
+					f"{device_hours:02d}:{device_minutes:02d}:{device_seconds:02d}"
+				)
+				device_usage["date"] = target_date.date()
 
 			_LOGGER.debug(
 				f"Daily screen time for {target_date.date()}: {hours:02d}:{minutes:02d}:{seconds:02d} "
@@ -662,6 +697,8 @@ class FamilyLinkClient:
 				"minutes": minutes,
 				"seconds": seconds,
 				"app_breakdown": app_breakdown,
+				"device_breakdown": device_breakdown,
+				"unattributed": unattributed,
 				"date": target_date.date(),
 			}
 

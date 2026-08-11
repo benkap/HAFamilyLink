@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Per-device daily screen-time sensors backed by Google's applied per-device totals, with independently reported app-session attribution and an explicit `pending` status when Google has not emitted app history for a newly connected device yet.
+- A child-level device policy state sensor that reports `uniform`, `mixed`, `overridden`, or `unknown`, with recurring child-wide policy and today-effective per-device values exposed separately.
+
 ---
 
 ## [1.3.2] - 2026-07-05
