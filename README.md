@@ -74,6 +74,8 @@ GPS location tracking is opt-in. Each location poll may notify the child's devic
 - Daily-limit schedule parsing and readback
 - Timezone-aware schedule calculations through `schedule_timezone`
 - Better bedtime readback attributes for weekly schedules vs. one-day overrides
+- Per-device daily usage/history sensors with app-attribution status
+- Clear uniform, mixed, and today-overridden policy reporting across devices
 - Hardened standalone auth-container behavior
 
 ## Features
@@ -82,7 +84,7 @@ GPS location tracking is opt-in. Each location poll may notify the child's devic
 - Enable or disable bedtime, school time, and daily limits
 - Apply one-day bedtime and daily-limit overrides
 - Add or cancel time bonuses
-- Monitor screen time, remaining time, daily limits, and top-used apps
+- Monitor child and per-device screen time, remaining time, daily limits, and top-used apps
 - Block or unblock apps by Android package name
 - Set per-app daily limits or mark apps as unlimited
 - Optionally track GPS location and battery level from the Family Link location source device

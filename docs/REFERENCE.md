@@ -42,6 +42,13 @@ Common attributes include `enabled`, `enabled_days`, `schedule`, `today`, `sched
 
 School time schedules are read-only. This fork supports recurring schedule writes for bedtime and daily limits, not weekly school time.
 
+#### Device Policy State
+
+- `sensor.<child>_device_policy_state`
+- State: `uniform`, `mixed`, `overridden`, or `unknown`
+
+Recurring schedules are child-wide. Google's applied state can still differ by device because of today-only overrides or device-specific limits. This diagnostic sensor keeps those two layers separate: `recurring_schedule_scope` is `child`, while `effective_policy_scope` is `device`. Its `dimensions`, `configured_effective_differences`, and `devices` attributes show exactly where the effective values agree or differ.
+
 #### Schedule Services
 
 - `familylink.set_bedtime`
@@ -73,10 +80,22 @@ See [Services](SERVICES.md) for service parameters and examples.
 
 #### Sensors
 
+- `sensor.<device>_daily_screen_time`
 - `sensor.<device>_screen_time_remaining`
 - `sensor.<device>_next_restriction`
 - `sensor.<device>_daily_limit`
 - `sensor.<device>_active_bonus`
+
+`sensor.<device>_daily_screen_time` uses the per-device total from Google's `appliedTimeLimits` response. Home Assistant records that entity independently, so each device gets its own history from the moment the entity is created.
+
+App attribution is reported independently in the sensor attributes:
+
+- `reported`: Google returned one or more app usage sessions for the device.
+- `pending`: the device total is above zero, but Google has not returned app sessions for it yet. This is common immediately after connecting a new device.
+- `none`: both the device total and app session count are zero.
+- `unknown`: no usable total or app-session data is available.
+
+The child-level daily screen-time sensors remain unchanged for compatibility and can differ from the sum of per-device applied totals because Google supplies those values through separate API fields.
 
 #### Binary Sensors
 

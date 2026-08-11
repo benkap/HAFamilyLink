@@ -193,6 +193,14 @@ async def test_daily_screen_time_returns_empty_result_without_usage_sessions(has
 		"minutes": 0,
 		"seconds": 0,
 		"app_breakdown": {},
+		"device_breakdown": {},
+		"unattributed": {
+			"total_seconds": 0.0,
+			"session_count": 0,
+			"app_breakdown": {},
+			"formatted": "00:00:00",
+			"date": datetime(2026, 6, 24).date(),
+		},
 		"date": datetime(2026, 6, 24).date(),
 	}
 

@@ -10,13 +10,180 @@ import pytest
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.familylink.const import DEVICE_LOCK_ACTION
-from custom_components.familylink.coordinator import FamilyLinkDataUpdateCoordinator
+from custom_components.familylink.coordinator import (
+	FamilyLinkDataUpdateCoordinator,
+	_build_device_policy_state,
+	_build_device_usage_data,
+	_summarize_boolean_values,
+)
 from custom_components.familylink.exceptions import FamilyLinkException, SessionExpiredError
 
 from conftest import TEST_CHILD_ID, TEST_DEVICE_ID
 
 OTHER_CHILD_ID = "100200301"
 OTHER_DEVICE_ID = "device-2"
+
+
+def test_device_summary_helpers_cover_defensive_and_fallback_paths() -> None:
+	"""Malformed device usage is isolated without hiding valid fallback totals."""
+	assert _summarize_boolean_values([False, False]) == "all_disabled"
+	assert _build_device_usage_data([], {}, {"device_breakdown": "bad"}) == {}
+
+	usage = _build_device_usage_data(
+		[{}, {"id": TEST_DEVICE_ID, "name": "Pixel Tablet"}],
+		{},
+		{
+			"date": "2026-08-11",
+			"device_breakdown": {
+				TEST_DEVICE_ID: {
+					"total_seconds": True,
+					"session_count": True,
+					"app_breakdown": {},
+				}
+			},
+		},
+	)
+
+	assert usage[TEST_DEVICE_ID]["total_minutes"] == 0
+	assert usage[TEST_DEVICE_ID]["total_source"] == "app_usage_sessions"
+	assert usage[TEST_DEVICE_ID]["session_count"] == 0
+	assert usage[TEST_DEVICE_ID]["attribution_status"] == "none"
+
+
+def test_per_device_usage_and_policy_summaries_handle_new_and_mixed_devices() -> None:
+	"""Device totals remain usable while attribution is pending and policies differ."""
+	devices = [
+		{"id": TEST_DEVICE_ID, "name": "Pixel Tablet"},
+		{"id": OTHER_DEVICE_ID, "name": "Galaxy Phone"},
+	]
+	devices_time_data = {
+		TEST_DEVICE_ID: {
+			"used_minutes": 40,
+			"daily_limit_enabled": True,
+			"daily_limit_minutes": 90,
+			"bedtime_window": {"start_ms": 1, "end_ms": 2},
+			"bedtime_window_label": "20:30-06:00",
+			"bedtime_active": False,
+			"schooltime_window": {"start_ms": 3, "end_ms": 4},
+			"schooltime_active": True,
+		},
+		OTHER_DEVICE_ID: {
+			"used_minutes": 2,
+			"daily_limit_enabled": True,
+			"daily_limit_minutes": 120,
+			"bedtime_window": {"start_ms": 1, "end_ms": 2},
+			"bedtime_window_label": "20:30-06:00",
+			"bedtime_active": False,
+			"schooltime_window": None,
+			"schooltime_active": False,
+		},
+	}
+	screen_time = {
+		"date": "2026-08-11",
+		"device_breakdown": {
+			TEST_DEVICE_ID: {
+				"total_seconds": 2400,
+				"session_count": 3,
+				"app_breakdown": {"com.video": 2400},
+			}
+		},
+	}
+
+	usage = _build_device_usage_data(devices, devices_time_data, screen_time)
+	policy = _build_device_policy_state(
+		devices,
+		devices_time_data,
+		bedtime_enabled=True,
+		school_time_enabled=False,
+		daily_limit_schedule=[{"day": 2, "enabled": True, "minutes": 90}],
+		schedule_today=2,
+	)
+
+	assert usage[TEST_DEVICE_ID]["attribution_status"] == "reported"
+	assert usage[TEST_DEVICE_ID]["app_attributed_minutes"] == 40
+	assert usage[OTHER_DEVICE_ID]["total_minutes"] == 2
+	assert usage[OTHER_DEVICE_ID]["attribution_status"] == "pending"
+	assert policy["state"] == "mixed"
+	assert policy["dimensions"]["daily_limit_minutes"]["state"] == "mixed"
+	assert policy["dimensions"]["school_time_enabled_today"]["state"] == "mixed"
+
+
+def test_device_policy_summary_marks_uniform_today_override() -> None:
+	"""Uniform effective device state can still differ from the recurring policy."""
+	devices = [
+		{"id": TEST_DEVICE_ID, "name": "Pixel Tablet"},
+		{"id": OTHER_DEVICE_ID, "name": "Galaxy Phone"},
+	]
+	devices_time_data = {
+		device["id"]: {
+			"daily_limit_enabled": True,
+			"daily_limit_minutes": 90,
+			"bedtime_window": {"start_ms": 1, "end_ms": 2},
+			"bedtime_window_label": "20:30-06:00",
+			"bedtime_active": False,
+			"schooltime_window": {"start_ms": 3, "end_ms": 4},
+			"schooltime_active": True,
+		}
+		for device in devices
+	}
+
+	policy = _build_device_policy_state(
+		devices,
+		devices_time_data,
+		bedtime_enabled=True,
+		school_time_enabled=False,
+		daily_limit_schedule=[{"day": 2, "enabled": True, "minutes": 90}],
+		schedule_today=2,
+	)
+
+	assert policy["state"] == "overridden"
+	assert policy["configured_effective_differences"] == [
+		"school_time_enabled_today"
+	]
+
+
+@pytest.mark.parametrize(
+	("device_enabled", "device_minutes", "schedule_enabled", "schedule_minutes", "expected"),
+	[
+		(False, 0, True, 90, ["daily_limit_enabled"]),
+		(True, 120, True, 90, ["daily_limit_minutes"]),
+		(True, 90, True, 90, []),
+	],
+)
+def test_device_policy_summary_compares_recurring_daily_limit(
+	device_enabled,
+	device_minutes,
+	schedule_enabled,
+	schedule_minutes,
+	expected,
+) -> None:
+	"""Daily limit comparison identifies overrides without false positives."""
+	policy = _build_device_policy_state(
+		[{}, {"id": TEST_DEVICE_ID, "name": "Pixel Tablet"}],
+		{
+			TEST_DEVICE_ID: {
+				"daily_limit_enabled": device_enabled,
+				"daily_limit_minutes": device_minutes,
+				"bedtime_window": None,
+				"bedtime_active": False,
+				"schooltime_window": None,
+				"schooltime_active": False,
+			}
+		},
+		bedtime_enabled=False,
+		school_time_enabled=False,
+		daily_limit_schedule=[
+			{
+				"day": 2,
+				"enabled": schedule_enabled,
+				"minutes": schedule_minutes,
+			}
+		],
+		schedule_today=2,
+	)
+
+	assert policy["configured_effective_differences"] == expected
+	assert policy["state"] == ("overridden" if expected else "uniform")
 
 
 def _supervised_child(
