@@ -57,7 +57,7 @@ These endpoints are reverse-engineered and may change without notice. Paths belo
 | `/people/{userId}/devices` | Device metadata, including device timezone when exposed |
 | `/people/{userId}/timeLimitOverrides:batchCreate` | Lock or unlock devices, add time bonuses, and apply today-only time-limit overrides |
 | `/people/{userId}/timeLimitOverride/{id}?$httpMethod=DELETE` | Cancel time bonuses and remove supported overrides |
-| `/people/{userId}/appliedTimeLimits` | Current time limits, active restrictions, and lock states |
+| `/people/{userId}/appliedTimeLimits` | Current time limits, active restrictions, and lock states. In observed device arrays, `[19]` is normal daily-quota remaining and `[20]` is normal daily-quota consumed; neither is a verified bonus countdown. |
 | `/people/{userId}/timeLimit` | Time-limit rules, schedules, and revision data |
 | `/people/{userId}/timeLimit:update` | Enable or disable bedtime and daily limits; update recurring bedtime and daily-limit schedules |
 

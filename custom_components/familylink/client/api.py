@@ -1454,8 +1454,10 @@ class FamilyLinkClient:
 
 
 						# Parse time data from positions 19-20
-						# Position 19: appears to contain remaining time when bonus is active
-						# Position 20: used time on daily_limit (ms string)
+						# Position 19: normal daily-quota remaining (ms string).
+						# Position 20: consumed against the normal daily quota (ms string).
+						# Live captures verified that position 19 is not bonus remaining;
+						# the type-10 override only exposes the granted bonus duration.
 						if len(device_data) > 20:
 							# Log position 19 for debugging
 							if isinstance(device_data[19], str) and device_data[19].isdigit():

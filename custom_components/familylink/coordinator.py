@@ -9,6 +9,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -25,6 +26,140 @@ from .exceptions import FamilyLinkException, SessionExpiredError
 from .schedules import describe_effective_window, effective_bedtime_window_source
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
+
+BONUS_TRACKING_STORAGE_VERSION = 1
+
+
+def _counter_value(value: Any) -> float | None:
+	"""Return a usable non-negative usage counter."""
+	if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+		return float(value)
+	return None
+
+
+def _derive_bonus_tracking(
+	time_data: dict[str, Any],
+	usage_data: dict[str, Any],
+	previous: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+	"""Derive remaining bonus minutes from usage deltas for one device.
+
+	Google exposes the granted duration and a stable override ID, but no verified
+	decrementing bonus counter. Position 20 supplies the applied-quota usage
+	counter; appsandusage supplies an independent attributed-usage counter. The
+	larger valid delta avoids understating usage when one endpoint refreshes late.
+	"""
+	override_id = time_data.get("bonus_override_id")
+	granted = _counter_value(time_data.get("bonus_minutes"))
+	if not isinstance(override_id, str) or not override_id or not granted:
+		return None, {
+			"bonus_granted_minutes": 0,
+			"bonus_remaining_minutes": 0,
+			"bonus_remaining_quality": "inactive",
+			"bonus_remaining_source": "none",
+			"bonus_observation_count": 0,
+		}
+
+	applied = _counter_value(time_data.get("used_minutes"))
+	app_counter = None
+	if usage_data.get("session_count", 0) > 0:
+		app_counter = _counter_value(usage_data.get("app_attributed_minutes"))
+	usage_date = str(usage_data.get("date") or "")
+
+	if (
+		not previous
+		or previous.get("override_id") != override_id
+		or _counter_value(previous.get("granted_minutes")) != granted
+	):
+		tracking = {
+			"override_id": override_id,
+			"granted_minutes": granted,
+			"remaining_base_minutes": granted,
+			"remaining_minutes": granted,
+			"applied_baseline": applied,
+			"app_baseline": app_counter,
+			"usage_date": usage_date,
+			"observation_count": 1,
+		}
+		return tracking, {
+			"bonus_granted_minutes": granted,
+			"bonus_remaining_minutes": granted,
+			"bonus_remaining_quality": "initializing",
+			"bonus_remaining_source": "baseline",
+			"bonus_observation_count": 1,
+		}
+
+	tracking = dict(previous)
+	tracking["granted_minutes"] = granted
+	tracking["observation_count"] = min(
+		2,
+		int(tracking.get("observation_count", 1)) + 1,
+	)
+	previous_remaining = _counter_value(tracking.get("remaining_minutes"))
+	if previous_remaining is None:
+		previous_remaining = granted
+
+	# Both counters roll over at the child's local day boundary. Preserve the
+	# already-derived balance and begin a fresh delta segment instead of
+	# interpreting the reset as negative usage.
+	applied_baseline_before_rollover = _counter_value(tracking.get("applied_baseline"))
+	applied_counter_reset = (
+		applied is not None
+		and applied_baseline_before_rollover is not None
+		and applied < applied_baseline_before_rollover
+	)
+	if (
+		usage_date
+		and tracking.get("usage_date")
+		and usage_date != tracking.get("usage_date")
+	) or applied_counter_reset:
+		tracking.update(
+			{
+				"remaining_base_minutes": previous_remaining,
+				"applied_baseline": applied,
+				"app_baseline": app_counter,
+				"usage_date": usage_date,
+			}
+		)
+	else:
+		tracking["usage_date"] = usage_date or tracking.get("usage_date", "")
+
+	# A source that was unavailable at bonus start joins from its first usable
+	# observation; it must not consume usage accumulated before its baseline.
+	if tracking.get("applied_baseline") is None and applied is not None:
+		tracking["applied_baseline"] = applied
+	if tracking.get("app_baseline") is None and app_counter is not None:
+		tracking["app_baseline"] = app_counter
+
+	deltas: dict[str, float] = {}
+	applied_baseline = _counter_value(tracking.get("applied_baseline"))
+	app_baseline = _counter_value(tracking.get("app_baseline"))
+	if applied is not None and applied_baseline is not None and applied >= applied_baseline:
+		deltas["applied_time_limits"] = applied - applied_baseline
+	if app_counter is not None and app_baseline is not None and app_counter >= app_baseline:
+		deltas["appsandusage"] = app_counter - app_baseline
+
+	base_remaining = _counter_value(tracking.get("remaining_base_minutes"))
+	if base_remaining is None:
+		base_remaining = granted
+	if deltas:
+		used_delta = max(deltas.values())
+		remaining = max(0.0, min(granted, base_remaining - used_delta))
+		source = max(deltas, key=deltas.get)
+		quality = "estimated" if tracking["observation_count"] >= 2 else "initializing"
+	else:
+		remaining = previous_remaining
+		source = "none"
+		quality = "unavailable"
+
+	tracking["remaining_minutes"] = remaining
+	return tracking, {
+		"bonus_granted_minutes": granted,
+		"bonus_remaining_minutes": remaining,
+		"bonus_remaining_quality": quality,
+		"bonus_remaining_source": source,
+		"bonus_observation_count": tracking["observation_count"],
+	}
 
 
 def _summarize_boolean_values(values: list[Any]) -> str:
@@ -284,6 +419,13 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		self._pending_lock_states: dict[str, tuple[bool, float]] = {}  # device_id -> (locked, timestamp)
 		self._pending_time_limit_states: dict[str, dict[str, tuple[bool, float]]] = {}  # child_id -> {"bedtime": (enabled, timestamp), "school_time": (enabled, timestamp), "daily_limit": (enabled, timestamp)}
 		self._last_known_data: dict[str, Any] | None = None  # Cache for last successful fetch
+		self._bonus_tracking_store = Store(
+			hass,
+			BONUS_TRACKING_STORAGE_VERSION,
+			f"{DOMAIN}.{entry.entry_id}.bonus_tracking",
+		)
+		self._bonus_tracking: dict[str, dict[str, Any]] = {}
+		self._bonus_tracking_loaded = False
 
 		# Get settings from options (runtime changes) or fall back to data (initial config)
 		self._location_tracking_enabled = entry.options.get(
@@ -305,6 +447,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 
 	async def _async_update_data(self) -> dict[str, Any]:
 		"""Fetch data from Family Link API."""
+		await self._async_load_bonus_tracking()
 		try:
 			result = await self._async_fetch_data()
 			# Reset notification flag on successful fetch (allows new notification if auth fails again later)
@@ -515,6 +658,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			# Google actually applies on the child device right now (issue #114).
 			bedtime_enabled_today = None
 			schooltime_enabled_today = None
+			applied_limits_fresh = False
 
 			try:
 				applied_limits_data = await self.client.async_get_applied_time_limits(account_id=child_id)
@@ -522,6 +666,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				devices_time_data = applied_limits_data.get("devices", {})
 				bedtime_enabled_today = applied_limits_data.get("bedtime_enabled_today")
 				schooltime_enabled_today = applied_limits_data.get("schooltime_enabled_today")
+				applied_limits_fresh = True
 				_LOGGER.debug(
 					f"Fetched applied time limits for {child_name}: "
 					f"{len(device_lock_states)} device lock states, "
@@ -610,6 +755,10 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 					device["bedtime_active"] = time_data.get("bedtime_active")
 					device["schooltime_active"] = time_data.get("schooltime_active")
 					device["bonus_minutes"] = time_data.get("bonus_minutes")
+					device["bonus_granted_minutes"] = time_data.get("bonus_granted_minutes")
+					device["bonus_remaining_minutes"] = time_data.get("bonus_remaining_minutes")
+					device["bonus_remaining_quality"] = time_data.get("bonus_remaining_quality")
+					device["bonus_remaining_source"] = time_data.get("bonus_remaining_source")
 					device["bonus_override_id"] = time_data.get("bonus_override_id")
 
 			# Aggregate daily_limit_enabled from devices
@@ -651,6 +800,54 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				devices_time_data,
 				screen_time,
 			)
+			if applied_limits_fresh:
+				bonus_tracking_changed = False
+				for device_id, time_data in devices_time_data.items():
+					if not isinstance(time_data, dict):
+						continue
+					tracking_key = f"{child_id}:{device_id}"
+					previous_tracking = self._bonus_tracking.get(tracking_key)
+					tracking, bonus_fields = _derive_bonus_tracking(
+						time_data,
+						device_usage_data.get(device_id, {}),
+						previous_tracking,
+					)
+					time_data.update(bonus_fields)
+					if tracking is None:
+						if tracking_key in self._bonus_tracking:
+							del self._bonus_tracking[tracking_key]
+							bonus_tracking_changed = True
+						continue
+
+					if tracking != previous_tracking:
+						self._bonus_tracking[tracking_key] = tracking
+						bonus_tracking_changed = True
+					# Preserve the original granted value separately. Existing consumers
+					# of remaining_minutes now receive the usage-derived estimate.
+					time_data["remaining_minutes"] = max(
+						0,
+						int(float(bonus_fields["bonus_remaining_minutes"])),
+					)
+					time_data["total_allowed_minutes"] = int(
+						float(bonus_fields["bonus_granted_minutes"])
+					)
+
+				if bonus_tracking_changed:
+					self._bonus_tracking_store.async_delay_save(
+						lambda: {"devices": self._bonus_tracking},
+						1.0,
+					)
+			for device in devices:
+				device_id = device.get("id")
+				time_data = devices_time_data.get(device_id, {})
+				if not isinstance(time_data, dict):
+					continue
+				device["remaining_minutes"] = time_data.get("remaining_minutes")
+				device["total_allowed_minutes"] = time_data.get("total_allowed_minutes")
+				device["bonus_granted_minutes"] = time_data.get("bonus_granted_minutes")
+				device["bonus_remaining_minutes"] = time_data.get("bonus_remaining_minutes")
+				device["bonus_remaining_quality"] = time_data.get("bonus_remaining_quality")
+				device["bonus_remaining_source"] = time_data.get("bonus_remaining_source")
 			device_policy_state = _build_device_policy_state(
 				devices,
 				devices_time_data,
@@ -728,6 +925,20 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			"supervised_children": supervised_children,
 			"children_data": children_data,
 		}
+
+	async def _async_load_bonus_tracking(self) -> None:
+		"""Load persisted per-override bonus baselines once."""
+		if self._bonus_tracking_loaded:
+			return
+		stored = await self._bonus_tracking_store.async_load()
+		devices = stored.get("devices", {}) if isinstance(stored, dict) else {}
+		if isinstance(devices, dict):
+			self._bonus_tracking = {
+				str(key): dict(value)
+				for key, value in devices.items()
+				if isinstance(value, dict)
+			}
+		self._bonus_tracking_loaded = True
 
 	async def _async_setup_client(self) -> None:
 		"""Set up the Family Link client."""
