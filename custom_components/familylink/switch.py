@@ -213,6 +213,15 @@ class FamilyLinkDeviceSwitch(CoordinatorEntity, SwitchEntity):
 			attributes["daily_limit_reached"] = time_data.get("daily_limit_remaining", 1) <= 0
 			attributes["bonus_active"] = time_data.get("bonus_minutes", 0) > 0
 			attributes["bonus_minutes"] = time_data.get("bonus_minutes", 0)
+			attributes["bonus_granted_minutes"] = time_data.get("bonus_granted_minutes", 0)
+			attributes["bonus_remaining_minutes"] = time_data.get("bonus_remaining_minutes", 0)
+			attributes["bonus_remaining_quality"] = time_data.get(
+				"bonus_remaining_quality", "inactive"
+			)
+			attributes["bonus_remaining_source"] = time_data.get(
+				"bonus_remaining_source", "none"
+			)
+			attributes["bonus_override_id"] = time_data.get("bonus_override_id")
 			attributes["remaining_minutes"] = time_data.get("remaining_minutes", 0)
 			attributes["bedtime_window_start"] = time_data.get("bedtime_window_start")
 			attributes["bedtime_window_end"] = time_data.get("bedtime_window_end")

@@ -9,6 +9,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -26,6 +27,384 @@ from .schedules import describe_effective_window, effective_bedtime_window_sourc
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
+BONUS_TRACKING_STORAGE_VERSION = 1
+
+
+def _counter_value(value: Any) -> float | None:
+	"""Return a usable non-negative usage counter."""
+	if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+		return float(value)
+	return None
+
+
+def _derive_bonus_tracking(
+	time_data: dict[str, Any],
+	usage_data: dict[str, Any],
+	previous: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+	"""Derive remaining bonus minutes from usage deltas for one device.
+
+	Google exposes the granted duration and a stable override ID, but no verified
+	decrementing bonus counter. Position 20 supplies the applied-quota usage
+	counter; appsandusage supplies an independent attributed-usage counter. The
+	larger valid delta avoids understating usage when one endpoint refreshes late.
+	"""
+	override_id = time_data.get("bonus_override_id")
+	granted = _counter_value(time_data.get("bonus_minutes"))
+	if not isinstance(override_id, str) or not override_id or not granted:
+		return None, {
+			"bonus_granted_minutes": 0,
+			"bonus_remaining_minutes": 0,
+			"bonus_remaining_quality": "inactive",
+			"bonus_remaining_source": "none",
+			"bonus_observation_count": 0,
+		}
+
+	applied = _counter_value(time_data.get("used_minutes"))
+	app_counter = None
+	if usage_data.get("session_count", 0) > 0:
+		app_counter = _counter_value(usage_data.get("app_attributed_minutes"))
+	usage_date = str(usage_data.get("date") or "")
+
+	if (
+		not previous
+		or previous.get("override_id") != override_id
+		or _counter_value(previous.get("granted_minutes")) != granted
+	):
+		tracking = {
+			"override_id": override_id,
+			"granted_minutes": granted,
+			"remaining_base_minutes": granted,
+			"remaining_minutes": granted,
+			"applied_baseline": applied,
+			"app_baseline": app_counter,
+			"usage_date": usage_date,
+			"observation_count": 1,
+		}
+		return tracking, {
+			"bonus_granted_minutes": granted,
+			"bonus_remaining_minutes": granted,
+			"bonus_remaining_quality": "initializing",
+			"bonus_remaining_source": "baseline",
+			"bonus_observation_count": 1,
+		}
+
+	tracking = dict(previous)
+	tracking["granted_minutes"] = granted
+	tracking["observation_count"] = min(
+		2,
+		int(tracking.get("observation_count", 1)) + 1,
+	)
+	previous_remaining = _counter_value(tracking.get("remaining_minutes"))
+	if previous_remaining is None:
+		previous_remaining = granted
+
+	# Both counters roll over at the child's local day boundary. Preserve the
+	# already-derived balance and begin a fresh delta segment instead of
+	# interpreting the reset as negative usage.
+	applied_baseline_before_rollover = _counter_value(tracking.get("applied_baseline"))
+	applied_counter_reset = (
+		applied is not None
+		and applied_baseline_before_rollover is not None
+		and applied < applied_baseline_before_rollover
+	)
+	if (
+		usage_date
+		and tracking.get("usage_date")
+		and usage_date != tracking.get("usage_date")
+	) or applied_counter_reset:
+		tracking.update(
+			{
+				"remaining_base_minutes": previous_remaining,
+				"applied_baseline": applied,
+				"app_baseline": app_counter,
+				"usage_date": usage_date,
+			}
+		)
+	else:
+		tracking["usage_date"] = usage_date or tracking.get("usage_date", "")
+
+	# A source that was unavailable at bonus start joins from its first usable
+	# observation; it must not consume usage accumulated before its baseline.
+	if tracking.get("applied_baseline") is None and applied is not None:
+		tracking["applied_baseline"] = applied
+	if tracking.get("app_baseline") is None and app_counter is not None:
+		tracking["app_baseline"] = app_counter
+
+	deltas: dict[str, float] = {}
+	applied_baseline = _counter_value(tracking.get("applied_baseline"))
+	app_baseline = _counter_value(tracking.get("app_baseline"))
+	if applied is not None and applied_baseline is not None and applied >= applied_baseline:
+		deltas["applied_time_limits"] = applied - applied_baseline
+	if app_counter is not None and app_baseline is not None and app_counter >= app_baseline:
+		deltas["appsandusage"] = app_counter - app_baseline
+
+	base_remaining = _counter_value(tracking.get("remaining_base_minutes"))
+	if base_remaining is None:
+		base_remaining = granted
+	if deltas:
+		used_delta = max(deltas.values())
+		remaining = max(0.0, min(granted, base_remaining - used_delta))
+		source = max(deltas, key=deltas.get)
+		quality = "estimated" if tracking["observation_count"] >= 2 else "initializing"
+	else:
+		remaining = previous_remaining
+		source = "none"
+		quality = "unavailable"
+
+	tracking["remaining_minutes"] = remaining
+	return tracking, {
+		"bonus_granted_minutes": granted,
+		"bonus_remaining_minutes": remaining,
+		"bonus_remaining_quality": quality,
+		"bonus_remaining_source": source,
+		"bonus_observation_count": tracking["observation_count"],
+	}
+
+
+def _summarize_boolean_values(values: list[Any]) -> str:
+	"""Summarize a per-device boolean policy dimension."""
+	if not values or not all(isinstance(value, bool) for value in values):
+		return "unknown"
+	if all(values):
+		return "all_enabled"
+	if not any(values):
+		return "all_disabled"
+	return "mixed"
+
+
+def _summarize_policy_values(values: list[Any]) -> dict[str, Any]:
+	"""Summarize whether a per-device policy value is uniform."""
+	if not values or any(value is None for value in values):
+		return {"state": "unknown", "value": None}
+
+	first_value = values[0]
+	if all(value == first_value for value in values[1:]):
+		return {"state": "uniform", "value": first_value}
+	return {"state": "mixed", "value": None}
+
+
+def _today_schedule_slot(
+	schedule: list[dict[str, Any]] | None,
+	schedule_today: int | None,
+) -> dict[str, Any] | None:
+	"""Return the recurring schedule slot for the current Google weekday."""
+	if not isinstance(schedule, list) or not isinstance(schedule_today, int):
+		return None
+	return next(
+		(
+			slot
+			for slot in schedule
+			if isinstance(slot, dict) and slot.get("day") == schedule_today
+		),
+		None,
+	)
+
+
+def _build_device_usage_data(
+	devices: list[dict[str, Any]],
+	devices_time_data: dict[str, dict[str, Any]],
+	screen_time: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+	"""Merge native per-device totals with app-session attribution."""
+	device_breakdown = screen_time.get("device_breakdown", {}) if screen_time else {}
+	if not isinstance(device_breakdown, dict):
+		device_breakdown = {}
+	usage_date = screen_time.get("date") if screen_time else None
+	result: dict[str, dict[str, Any]] = {}
+
+	for device in devices:
+		device_id = device.get("id")
+		if not isinstance(device_id, str) or not device_id:
+			continue
+
+		time_data = devices_time_data.get(device_id, {})
+		app_usage = device_breakdown.get(device_id, {})
+		app_seconds = app_usage.get("total_seconds", 0)
+		if not isinstance(app_seconds, (int, float)) or isinstance(app_seconds, bool):
+			app_seconds = 0
+		session_count = app_usage.get("session_count", 0)
+		if not isinstance(session_count, int) or isinstance(session_count, bool):
+			session_count = 0
+
+		applied_minutes = time_data.get("used_minutes")
+		if isinstance(applied_minutes, (int, float)) and not isinstance(applied_minutes, bool):
+			total_minutes = applied_minutes
+			total_source = "applied_time_limits"
+		elif app_usage:
+			total_minutes = round(app_seconds / 60, 1)
+			total_source = "app_usage_sessions"
+		else:
+			total_minutes = None
+			total_source = "unavailable"
+
+		if session_count > 0:
+			attribution_status = "reported"
+		elif isinstance(total_minutes, (int, float)) and total_minutes > 0:
+			attribution_status = "pending"
+		elif total_minutes == 0:
+			attribution_status = "none"
+		else:
+			attribution_status = "unknown"
+
+		result[device_id] = {
+			"total_minutes": total_minutes,
+			"total_source": total_source,
+			"app_attributed_seconds": app_seconds,
+			"app_attributed_minutes": round(app_seconds / 60, 1),
+			"attribution_status": attribution_status,
+			"session_count": session_count,
+			"app_breakdown": app_usage.get("app_breakdown", {}),
+			"date": app_usage.get("date", usage_date),
+		}
+
+	return result
+
+
+def _build_device_policy_state(
+	devices: list[dict[str, Any]],
+	devices_time_data: dict[str, dict[str, Any]],
+	*,
+	bedtime_enabled: bool | None,
+	school_time_enabled: bool | None,
+	daily_limit_schedule: list[dict[str, Any]] | None,
+	schedule_today: int | None,
+) -> dict[str, Any]:
+	"""Describe uniform, mixed, and overridden policy across devices."""
+	device_rows: list[dict[str, Any]] = []
+	for device in devices:
+		device_id = device.get("id")
+		if not isinstance(device_id, str) or not device_id:
+			continue
+
+		time_data = devices_time_data.get(device_id)
+		if not isinstance(time_data, dict):
+			time_data = {}
+		device_rows.append(
+			{
+				"device_id": device_id,
+				"device_name": device.get("name", "Unknown Device"),
+				"daily_limit_enabled": time_data.get("daily_limit_enabled"),
+				"daily_limit_minutes": time_data.get("daily_limit_minutes"),
+				"bedtime_enabled_today": (
+					time_data.get("bedtime_window") is not None
+					if "bedtime_window" in time_data
+					else None
+				),
+				"bedtime_window": (
+					time_data.get("bedtime_window_label") or "disabled"
+					if "bedtime_window" in time_data
+					else None
+				),
+				"bedtime_window_differs_from_weekly": time_data.get(
+					"bedtime_window_differs_from_weekly"
+				),
+				"bedtime_active": time_data.get("bedtime_active"),
+				"school_time_enabled_today": (
+					time_data.get("schooltime_window") is not None
+					if "schooltime_window" in time_data
+					else None
+				),
+				"school_time_window": (
+					time_data.get("schooltime_window") or "disabled"
+					if "schooltime_window" in time_data
+					else None
+				),
+				"school_time_active": time_data.get("schooltime_active"),
+			}
+		)
+
+	dimensions = {
+		"daily_limit_enabled": {
+			"state": _summarize_boolean_values(
+				[row["daily_limit_enabled"] for row in device_rows]
+			)
+		},
+		"daily_limit_minutes": _summarize_policy_values(
+			[row["daily_limit_minutes"] for row in device_rows]
+		),
+		"bedtime_enabled_today": {
+			"state": _summarize_boolean_values(
+				[row["bedtime_enabled_today"] for row in device_rows]
+			)
+		},
+		"bedtime_window": _summarize_policy_values(
+			[row["bedtime_window"] for row in device_rows]
+		),
+		"school_time_enabled_today": {
+			"state": _summarize_boolean_values(
+				[row["school_time_enabled_today"] for row in device_rows]
+			)
+		},
+		"school_time_window": _summarize_policy_values(
+			[row["school_time_window"] for row in device_rows]
+		),
+	}
+
+	configured_effective_differences: list[str] = []
+	for dimension, configured_value in (
+		("bedtime_enabled_today", bedtime_enabled),
+		("school_time_enabled_today", school_time_enabled),
+	):
+		effective_state = dimensions[dimension]["state"]
+		if isinstance(configured_value, bool) and effective_state in {
+			"all_enabled",
+			"all_disabled",
+		}:
+			effective_value = effective_state == "all_enabled"
+			if configured_value != effective_value:
+				configured_effective_differences.append(dimension)
+	if any(row.get("bedtime_window_differs_from_weekly") is True for row in device_rows):
+		configured_effective_differences.append("bedtime_window")
+
+	daily_slot = _today_schedule_slot(daily_limit_schedule, schedule_today)
+	configured_daily_enabled = None
+	configured_daily_minutes = None
+	if daily_slot:
+		configured_daily_enabled = daily_slot.get("enabled")
+		effective_daily_state = dimensions["daily_limit_enabled"]["state"]
+		if isinstance(configured_daily_enabled, bool) and effective_daily_state in {
+			"all_enabled",
+			"all_disabled",
+		}:
+			if configured_daily_enabled != (effective_daily_state == "all_enabled"):
+				configured_effective_differences.append("daily_limit_enabled")
+		configured_daily_minutes = daily_slot.get("minutes")
+		effective_daily_minutes = dimensions["daily_limit_minutes"]
+		if (
+			configured_daily_enabled is True
+			and effective_daily_state == "all_enabled"
+			and isinstance(configured_daily_minutes, int)
+			and effective_daily_minutes["state"] == "uniform"
+			and configured_daily_minutes != effective_daily_minutes["value"]
+		):
+			configured_effective_differences.append("daily_limit_minutes")
+
+	dimension_states = [dimension["state"] for dimension in dimensions.values()]
+	if any(state == "mixed" for state in dimension_states):
+		state = "mixed"
+	elif not device_rows or any(state == "unknown" for state in dimension_states):
+		state = "unknown"
+	elif configured_effective_differences:
+		state = "overridden"
+	else:
+		state = "uniform"
+
+	return {
+		"state": state,
+		"scope": "child_recurring_with_device_effective_state",
+		"device_count": len(device_rows),
+		"configured": {
+			"bedtime_enabled": bedtime_enabled,
+			"school_time_enabled": school_time_enabled,
+			"daily_limit_enabled_today": configured_daily_enabled,
+			"daily_limit_minutes_today": configured_daily_minutes,
+		},
+		"dimensions": dimensions,
+		"configured_effective_differences": configured_effective_differences,
+		"devices": device_rows,
+	}
+
 
 class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 	"""Class to manage fetching data from the Family Link API."""
@@ -40,6 +419,13 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		self._pending_lock_states: dict[str, tuple[bool, float]] = {}  # device_id -> (locked, timestamp)
 		self._pending_time_limit_states: dict[str, dict[str, tuple[bool, float]]] = {}  # child_id -> {"bedtime": (enabled, timestamp), "school_time": (enabled, timestamp), "daily_limit": (enabled, timestamp)}
 		self._last_known_data: dict[str, Any] | None = None  # Cache for last successful fetch
+		self._bonus_tracking_store = Store(
+			hass,
+			BONUS_TRACKING_STORAGE_VERSION,
+			f"{DOMAIN}.{entry.entry_id}.bonus_tracking",
+		)
+		self._bonus_tracking: dict[str, dict[str, Any]] = {}
+		self._bonus_tracking_loaded = False
 
 		# Get settings from options (runtime changes) or fall back to data (initial config)
 		self._location_tracking_enabled = entry.options.get(
@@ -61,6 +447,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 
 	async def _async_update_data(self) -> dict[str, Any]:
 		"""Fetch data from Family Link API."""
+		await self._async_load_bonus_tracking()
 		try:
 			result = await self._async_fetch_data()
 			# Reset notification flag on successful fetch (allows new notification if auth fails again later)
@@ -271,6 +658,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			# Google actually applies on the child device right now (issue #114).
 			bedtime_enabled_today = None
 			schooltime_enabled_today = None
+			applied_limits_fresh = False
 
 			try:
 				applied_limits_data = await self.client.async_get_applied_time_limits(account_id=child_id)
@@ -278,6 +666,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				devices_time_data = applied_limits_data.get("devices", {})
 				bedtime_enabled_today = applied_limits_data.get("bedtime_enabled_today")
 				schooltime_enabled_today = applied_limits_data.get("schooltime_enabled_today")
+				applied_limits_fresh = True
 				_LOGGER.debug(
 					f"Fetched applied time limits for {child_name}: "
 					f"{len(device_lock_states)} device lock states, "
@@ -366,6 +755,10 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 					device["bedtime_active"] = time_data.get("bedtime_active")
 					device["schooltime_active"] = time_data.get("schooltime_active")
 					device["bonus_minutes"] = time_data.get("bonus_minutes")
+					device["bonus_granted_minutes"] = time_data.get("bonus_granted_minutes")
+					device["bonus_remaining_minutes"] = time_data.get("bonus_remaining_minutes")
+					device["bonus_remaining_quality"] = time_data.get("bonus_remaining_quality")
+					device["bonus_remaining_source"] = time_data.get("bonus_remaining_source")
 					device["bonus_override_id"] = time_data.get("bonus_override_id")
 
 			# Aggregate daily_limit_enabled from devices
@@ -401,6 +794,69 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 								_LOGGER.debug(f"Using cached screen time for {child_name}")
 							break
 
+			# Build per-device usage attribution and effective policy summaries.
+			device_usage_data = _build_device_usage_data(
+				devices,
+				devices_time_data,
+				screen_time,
+			)
+			if applied_limits_fresh:
+				bonus_tracking_changed = False
+				for device_id, time_data in devices_time_data.items():
+					if not isinstance(time_data, dict):
+						continue
+					tracking_key = f"{child_id}:{device_id}"
+					previous_tracking = self._bonus_tracking.get(tracking_key)
+					tracking, bonus_fields = _derive_bonus_tracking(
+						time_data,
+						device_usage_data.get(device_id, {}),
+						previous_tracking,
+					)
+					time_data.update(bonus_fields)
+					if tracking is None:
+						if tracking_key in self._bonus_tracking:
+							del self._bonus_tracking[tracking_key]
+							bonus_tracking_changed = True
+						continue
+
+					if tracking != previous_tracking:
+						self._bonus_tracking[tracking_key] = tracking
+						bonus_tracking_changed = True
+					# Preserve the original granted value separately. Existing consumers
+					# of remaining_minutes now receive the usage-derived estimate.
+					time_data["remaining_minutes"] = max(
+						0,
+						int(float(bonus_fields["bonus_remaining_minutes"])),
+					)
+					time_data["total_allowed_minutes"] = int(
+						float(bonus_fields["bonus_granted_minutes"])
+					)
+
+				if bonus_tracking_changed:
+					self._bonus_tracking_store.async_delay_save(
+						lambda: {"devices": self._bonus_tracking},
+						1.0,
+					)
+			for device in devices:
+				device_id = device.get("id")
+				time_data = devices_time_data.get(device_id, {})
+				if not isinstance(time_data, dict):
+					continue
+				device["remaining_minutes"] = time_data.get("remaining_minutes")
+				device["total_allowed_minutes"] = time_data.get("total_allowed_minutes")
+				device["bonus_granted_minutes"] = time_data.get("bonus_granted_minutes")
+				device["bonus_remaining_minutes"] = time_data.get("bonus_remaining_minutes")
+				device["bonus_remaining_quality"] = time_data.get("bonus_remaining_quality")
+				device["bonus_remaining_source"] = time_data.get("bonus_remaining_source")
+			device_policy_state = _build_device_policy_state(
+				devices,
+				devices_time_data,
+				bedtime_enabled=bedtime_enabled,
+				school_time_enabled=school_time_enabled,
+				daily_limit_schedule=daily_limit_schedule,
+				schedule_today=time_limit_config.get("schedule_today"),
+			)
+
 			# Fetch location data for this child (if enabled)
 			location = None
 			if self._location_tracking_enabled:
@@ -433,6 +889,8 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				"child_name": child_name,
 				"devices": devices,
 				"screen_time": screen_time,
+				"device_usage_data": device_usage_data,
+				"device_policy_state": device_policy_state,
 				"location": location,
 				"apps": apps_usage_data.get("apps", []) if apps_usage_data else [],
 				"app_usage_sessions": apps_usage_data.get("appUsageSessions", []) if apps_usage_data else [],
@@ -467,6 +925,20 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			"supervised_children": supervised_children,
 			"children_data": children_data,
 		}
+
+	async def _async_load_bonus_tracking(self) -> None:
+		"""Load persisted per-override bonus baselines once."""
+		if self._bonus_tracking_loaded:
+			return
+		stored = await self._bonus_tracking_store.async_load()
+		devices = stored.get("devices", {}) if isinstance(stored, dict) else {}
+		if isinstance(devices, dict):
+			self._bonus_tracking = {
+				str(key): dict(value)
+				for key, value in devices.items()
+				if isinstance(value, dict)
+			}
+		self._bonus_tracking_loaded = True
 
 	async def _async_setup_client(self) -> None:
 		"""Set up the Family Link client."""
