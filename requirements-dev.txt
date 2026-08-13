@@ -2,7 +2,7 @@ pytest==8.0.2
 pytest-asyncio==0.23.5
 pytest-cov==4.1.0
 pytest-homeassistant-custom-component==0.13.109
-pre-commit==4.6.0
+pre-commit==4.6.1
 ruff==0.15.21
 
 # Keep the Home Assistant 2024.3.3 test harness resolver stable. Its
