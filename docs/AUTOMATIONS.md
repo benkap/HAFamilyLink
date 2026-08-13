@@ -8,10 +8,13 @@ The dashboard shown here is not included with HAFamilyLink. It is a proof of con
 
 A dashboard like this can put the main Family Link actions in one place: current lock state, bonus controls, weekly schedule editing, and detail toggles. The screenshots use demo-style labels and values.
 
-| Main status | Actions and details |
+| Dashboard overview | Set today's limit |
 | --- | --- |
-| <img src="../assets/images/1_dashboard_locked.png" alt="Dashboard showing a locked tablet, today's limit, today's schedule, and temporary controls" width="420"> | <img src="../assets/images/2_dashboard_bonus_confirmation.png" alt="Dashboard confirmation dialog for adding bonus time" width="420"> |
-| <img src="../assets/images/3_dashboard_unlocked_bonus_active.png" alt="Dashboard showing an unlocked tablet with an active bonus" width="420"> | <img src="../assets/images/6_dashboard_details_and_toggles.png" alt="Dashboard details panel with sync status, metrics, and admin toggles" width="420"> |
+| <img src="../assets/images/1_dashboard_locked.png" alt="Dashboard overview showing a locked tablet, time used today, today's limit, temporary controls, and collapsible details" width="420"> | <img src="../assets/images/2_dashboard_set_today_limit.png" alt="Dashboard dialog for setting a higher limit for today" width="420"> |
+
+| Reset temporary status | Actions and details |
+| --- | --- |
+| <img src="../assets/images/3_dashboard_reset_temporary_status.png" alt="Dashboard confirmation dialog for clearing a temporary lock and restoring today's scheduled limit" width="420"> | <img src="../assets/images/6_dashboard_details_and_toggles.png" alt="Dashboard details panel with sync status, metrics, and admin toggles" width="420"> |
 
 | Weekly schedule | Edit mode |
 | --- | --- |

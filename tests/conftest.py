@@ -164,6 +164,65 @@ def sample_coordinator_data() -> dict[str, object]:
 						"com.google.android.youtube": 3600,
 						"com.spotify.music": 1800,
 					},
+					"device_breakdown": {
+						TEST_DEVICE_ID: {
+							"total_seconds": 5400,
+							"session_count": 2,
+							"app_breakdown": {
+								"com.google.android.youtube": 3600,
+								"com.spotify.music": 1800,
+							},
+						}
+					},
+				},
+				"device_usage_data": {
+					TEST_DEVICE_ID: {
+						"total_minutes": 60,
+						"total_source": "applied_time_limits",
+						"app_attributed_seconds": 5400,
+						"app_attributed_minutes": 90,
+						"attribution_status": "reported",
+						"session_count": 2,
+						"app_breakdown": {
+							"com.google.android.youtube": 3600,
+							"com.spotify.music": 1800,
+						},
+						"date": "2026-06-23",
+					}
+				},
+				"device_policy_state": {
+					"state": "overridden",
+					"scope": "child_recurring_with_device_effective_state",
+					"device_count": 1,
+					"configured": {
+						"bedtime_enabled": True,
+						"school_time_enabled": False,
+						"daily_limit_enabled_today": True,
+						"daily_limit_minutes_today": 120,
+					},
+					"dimensions": {
+						"daily_limit_enabled": {"state": "all_enabled"},
+						"daily_limit_minutes": {"state": "uniform", "value": 120},
+						"bedtime_enabled_today": {"state": "all_enabled"},
+						"bedtime_window": {"state": "uniform", "value": "21:00-06:00"},
+						"school_time_enabled_today": {"state": "all_enabled"},
+						"school_time_window": {"state": "uniform", "value": {}},
+					},
+					"configured_effective_differences": ["school_time_enabled_today"],
+					"devices": [
+						{
+							"device_id": TEST_DEVICE_ID,
+							"device_name": "Pixel Tablet",
+							"daily_limit_enabled": True,
+							"daily_limit_minutes": 120,
+							"bedtime_enabled_today": True,
+							"bedtime_window": "21:00-06:00",
+							"bedtime_active": False,
+							"school_time_enabled_today": True,
+							"school_time_window": {},
+							"school_time_active": False,
+						}
+					],
 				},
 				"devices": [
 					{

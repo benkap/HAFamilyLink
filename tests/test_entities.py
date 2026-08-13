@@ -113,6 +113,7 @@ async def test_platform_setup_skips_missing_children_data(
 		(
 			sensor,
 			{
+				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_daily_screen_time",
 				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_screen_time_remaining",
 				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_next_restriction",
 				f"{DOMAIN}_{TEST_CHILD_ID}_returning-device_daily_limit",
@@ -397,7 +398,7 @@ async def test_sensor_entities_include_unique_ids_device_info_and_attributes(
 		hass, mock_config_entry, harness_coordinator, sensor
 	)
 
-	assert len(entities) == 27
+	assert len(entities) == 29
 	app_count = _entity_by_unique_id(entities, f"{DOMAIN}_{TEST_CHILD_ID}_app_count")
 	assert app_count.native_value == 3
 	assert app_count.extra_state_attributes["blocked_apps"] == 1
@@ -408,6 +409,18 @@ async def test_sensor_entities_include_unique_ids_device_info_and_attributes(
 	)
 	assert screen_time.native_value == 60
 	assert screen_time.extra_state_attributes["device_id"] == TEST_DEVICE_ID
+	device_usage = _entity_by_unique_id(
+		entities, f"{DOMAIN}_{TEST_CHILD_ID}_{TEST_DEVICE_ID}_daily_screen_time"
+	)
+	assert device_usage.native_value == 60
+	assert device_usage.extra_state_attributes["total_source"] == "applied_time_limits"
+	assert device_usage.extra_state_attributes["app_attribution_status"] == "reported"
+	policy_state = _entity_by_unique_id(
+		entities, f"{DOMAIN}_{TEST_CHILD_ID}_device_policy_state"
+	)
+	assert policy_state.native_value == "overridden"
+	assert policy_state.extra_state_attributes["recurring_schedule_scope"] == "child"
+	assert policy_state.extra_state_attributes["effective_policy_scope"] == "device"
 
 	battery = _entity_by_unique_id(entities, f"{DOMAIN}_{TEST_CHILD_ID}_battery_level")
 	assert battery.native_value == 84
