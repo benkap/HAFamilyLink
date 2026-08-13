@@ -194,7 +194,7 @@ At the end of response, a block of tuples indicates the global state of switches
   - **Schooltime** via a **`CAMQ*`** tuple (e.g. `CAMQBi...`) with **hours** and `stateFlag`.
   - **Lock state & Bonus override** at position `[0]` of each device block
   - **Normal daily-quota remaining** at position `[19]` (milliseconds as string)
-  - **Used time** at position `[20]` (milliseconds as string)
+  - **Normal daily-quota consumed** at position `[20]` (milliseconds as string)
   - For the verified Galaxy captures, `[19] + [20]` exactly equalled the
     configured daily quota. These are applied-quota counters, not necessarily
     identical to calendar-day usage from the separate `appsandusage` endpoint.
@@ -244,11 +244,21 @@ Position `[0]` of each device block contains either:
 - Example: `"3600000"` = 60 minutes = 1 hour
 - Convert with `int(device_data[position]) / 60000` when sub-minute precision
   matters, or `// 60000` for the integration's integer-minute entities.
+- Both counters can be `0` when the daily limit is off, even if a minute value
+  still exists in a policy tuple.
 - Observed invariant when the daily quota is enabled:
   `int(device_data[19]) + int(device_data[20]) == daily_limit_minutes * 60000`.
-- A 2026-08-12 active 60-minute Galaxy bonus still returned `[19] = 79.192`
-  minutes and `[20] = 10.808` minutes, totalling the normal 90-minute quota.
-  Therefore `[19]` is **not** bonus remaining.
+
+Sanitized live captures:
+
+| Capture | Bonus | `[19]` remaining | `[20]` consumed | Sum |
+| --- | ---: | ---: | ---: | ---: |
+| 2026-08-12 | 60 min active | 4,751,520 ms | 648,480 ms | 5,400,000 ms |
+| 2026-08-13 | none | 2,586,976 ms | 2,813,024 ms | 5,400,000 ms |
+
+- **Outdated hypothesis:** position `[19]` may be decrementing bonus remaining.
+  The active-bonus capture disproved this because `[19]` reported 79.192
+  minutes while the granted bonus was 60 minutes.
 - The `appsandusage` endpoint is separate and can have different refresh or
   rollover timing. Avoid labelling `[20]` as authoritative calendar-day usage.
 
@@ -340,24 +350,6 @@ def parse_applied_time_limits(payload, today_day):
 - `minutes > 0` required to consider the **daily limit** active.
 - **Hours** are local (Europe/Paris if user context; beware of DST).
 - Windows `start > end` **cross midnight** (e.g. 20:30 → 07:30).
-
----
-
-## 🧩 Aggregated fields (appliedTimeLimits)
-In each observed device block, positions `[19]` and `[20]` are millisecond
-strings representing **normal daily-quota remaining/consumed**. They can be `0`
-if the limit is **OFF** even if a minute value exists in the tuple. For two
-sanitized Galaxy captures, the pair summed exactly to the configured 90-minute
-quota:
-
-| Capture | Bonus | `[19]` remaining | `[20]` consumed | Sum |
-| --- | ---: | ---: | ---: | ---: |
-| 2026-08-12 | 60 min active | 4,751,520 ms | 648,480 ms | 5,400,000 ms |
-| 2026-08-13 | none | 2,586,976 ms | 2,813,024 ms | 5,400,000 ms |
-
-**Outdated hypothesis:** position `[19]` may be decrementing bonus remaining.
-The active-bonus capture disproved this because `[19]` reported 79.192 minutes
-while the granted bonus was 60 minutes.
 
 ---
 
@@ -610,7 +602,7 @@ Returns a transaction ID/timestamp on success.
 - **Asserts** - Advanced:
   - Lock state detection from position [0][2]
   - Bonus override parsing from position [0][13][0][0]
-  - Used time parsing from position [20]
+  - Normal daily-quota consumed counter parsing from position [20]
   - Bonus tracking: granted duration remains separate; estimated remaining is
     derived from per-device usage deltas, persisted per override, and marked
     with source/quality metadata

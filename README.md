@@ -66,21 +66,13 @@ This project uses unofficial, reverse-engineered Google Family Link endpoints. U
 
 GPS location tracking is opt-in. Each location poll may notify the child's device.
 
-### Screen-time and bonus-counter semantics
+### Bonus-time estimates
 
-Live `appliedTimeLimits` captures verified that unnamed device-array position
-`[19]` is the normal daily-quota remainder and `[20]` is the consumed amount
-against that quota, both in milliseconds. Position `[19]` is not a bonus
-countdown. A bonus is a separate type-10 override and exposes its granted
-duration, but Google has not exposed a verified decrementing bonus-remaining
-field in the observed payload. The integration therefore derives an estimated
-remaining value from the change in the per-device consumed counter, with
-`appsandusage` as a fallback, and persists each override's baseline across
-restarts. `sensor.<device>_active_bonus` keeps the granted duration as its state
-for compatibility and exposes the estimate, source, quality, override ID, and
-observation count as attributes. Treat the estimate as refresh-granularity data,
-not a second-by-second countdown. See
-[Google Family Link API Analysis](docs/GOOGLE_FAMILY_LINK_API_ANALYSIS.md).
+Google does not expose a verified live bonus countdown. HAFamilyLink estimates
+remaining bonus time from available usage counters, so values update at
+Google's refresh cadence and may lag. See the [Advanced
+Reference](docs/REFERENCE.md#per-device-entities) and [Google Family Link API
+Analysis](docs/GOOGLE_FAMILY_LINK_API_ANALYSIS.md) for details.
 
 ## What This Fork Adds
 
