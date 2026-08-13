@@ -70,7 +70,7 @@ jobs:
 
       - name: Checkout repository
         if: github.event_name != 'pull_request' || matrix.run_on_pr
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Set up QEMU
         if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.platform == 'linux/arm64'
@@ -239,7 +239,7 @@ jobs:
 
       - name: Checkout repository
         if: github.event_name != 'pull_request'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Read auth version
         if: github.event_name != 'pull_request'
