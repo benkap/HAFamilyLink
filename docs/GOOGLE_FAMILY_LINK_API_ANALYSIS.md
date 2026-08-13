@@ -193,8 +193,11 @@ At the end of response, a block of tuples indicates the global state of switches
   - **Bedtime** (window) via **`CAEQBg`** tuple but **with hours `[start],[end]`** (yes, same root key, different content).
   - **Schooltime** via a **`CAMQ*`** tuple (e.g. `CAMQBi...`) with **hours** and `stateFlag`.
   - **Lock state & Bonus override** at position `[0]` of each device block
-  - **Used time** at position `[20]` (milliseconds as string)
-  - **Aggregates** "allowed / consumed" for the day (often two close integers, sometimes `0` if OFF).
+  - **Normal daily-quota remaining** at position `[19]` (milliseconds as string)
+  - **Normal daily-quota consumed** at position `[20]` (milliseconds as string)
+  - For the verified Galaxy captures, `[19] + [20]` exactly equalled the
+    configured daily quota. These are applied-quota counters, not necessarily
+    identical to calendar-day usage from the separate `appsandusage` endpoint.
 
 #### 2.1. Daily limit (per device & per day)
 ```
@@ -225,13 +228,39 @@ Position `[0]` of each device block contains either:
   - Type **10** indicates time bonus
   - Bonus seconds at position `[0][13][0][0]` (string format: e.g., `"1800"` for 30 minutes)
   - **IMPORTANT**: Bonus **replaces** normal daily limit time (doesn't add to it)
-  - When bonus active: `remaining_time = bonus_minutes` (ignoring daily_limit - used_time)
+  - The override contains the **granted** bonus duration. No decrementing
+    bonus-remaining field has been verified in `appliedTimeLimits`.
+  - The integration derives an estimated remaining value from usage-counter
+    deltas while preserving the granted duration separately. This is still
+    **not** a proven API countdown and only advances when Google refreshes its
+    counters.
   - `override_id` is a UUID used to cancel the bonus via DELETE endpoint
 
-#### 2.5. Used time (position [20])
-- Position `[20]` contains used time in **milliseconds** as a **string**
+#### 2.5. Normal daily-quota accounting (positions [19] and [20])
+- Position `[19]` contains the remaining amount against the normal daily quota
+  in **milliseconds** as a **string**.
+- Position `[20]` contains the consumed amount against the normal daily quota
+  in **milliseconds** as a **string**.
 - Example: `"3600000"` = 60 minutes = 1 hour
-- Convert: `used_minutes = int(device_data[20]) // 60000`
+- Convert with `int(device_data[position]) / 60000` when sub-minute precision
+  matters, or `// 60000` for the integration's integer-minute entities.
+- Both counters can be `0` when the daily limit is off, even if a minute value
+  still exists in a policy tuple.
+- Observed invariant when the daily quota is enabled:
+  `int(device_data[19]) + int(device_data[20]) == daily_limit_minutes * 60000`.
+
+Sanitized live captures:
+
+| Capture | Bonus | `[19]` remaining | `[20]` consumed | Sum |
+| --- | ---: | ---: | ---: | ---: |
+| 2026-08-12 | 60 min active | 4,751,520 ms | 648,480 ms | 5,400,000 ms |
+| 2026-08-13 | none | 2,586,976 ms | 2,813,024 ms | 5,400,000 ms |
+
+- **Outdated hypothesis:** position `[19]` may be decrementing bonus remaining.
+  The active-bonus capture disproved this because `[19]` reported 79.192
+  minutes while the granted bonus was 60 minutes.
+- The `appsandusage` endpoint is separate and can have different refresh or
+  rollover timing. Avoid labelling `[20]` as authoritative calendar-day usage.
 
 #### 2.6. Daily limit activation rules
 Daily limit is considered **active** if ALL conditions are met:
@@ -321,11 +350,6 @@ def parse_applied_time_limits(payload, today_day):
 - `minutes > 0` required to consider the **daily limit** active.
 - **Hours** are local (Europe/Paris if user context; beware of DST).
 - Windows `start > end` **cross midnight** (e.g. 20:30 → 07:30).
-
----
-
-## 🧩 Aggregated fields (appliedTimeLimits)
-In each device block, two integers (often contiguous) represent the **allowed/consumed** for the day (ms). They can be `0` if the limit is **OFF** even if a minute value exists in the tuple.
 
 ---
 
@@ -542,7 +566,13 @@ Returns a transaction ID/timestamp on success.
 - **Timezones & DST**: convert epoch ms → local `datetime`; prefer timezone-aware utilities.
 - **Secrets**: never log auth/key headers; mask in diagnostics.
 - **Rate limiting**: bounded retries (429/5xx) + backoff + jitter; 401/403 → reauth/config.
-- **Bonus time behavior**: Bonus **replaces** normal daily limit (doesn't add). Calculate: `remaining = bonus_minutes if bonus > 0 else max(0, daily_limit - used)`
+- **Bonus time behavior**: Bonus **replaces** normal daily-limit availability
+  rather than adding to the displayed normal remainder. The override supplies
+  the granted duration, not a verified live countdown. The integration derives
+  estimated remaining time from the larger valid delta of the per-device
+  position `[20]` counter and `appsandusage`, persists the per-override baseline,
+  and handles counter rollover. Callers must still treat the result as an
+  estimate at Google's refresh granularity.
 - **Daily limit detection**: Only active if tuple day matches current weekday AND tuple index < 10 AND stateFlag == 2
 - **timeLimit response**: Always unwrap from `response[1]` (real data), `response[0]` is metadata
 - **Revisions identification**: Exactly 4 elements `[uuid, type_flag, state_flag, timestamp]`, filter by length to avoid confusion with schedules (7+ elements)
@@ -572,8 +602,10 @@ Returns a transaction ID/timestamp on success.
 - **Asserts** - Advanced:
   - Lock state detection from position [0][2]
   - Bonus override parsing from position [0][13][0][0]
-  - Used time parsing from position [20]
-  - Bonus replaces behavior: `remaining = bonus` (not `daily_limit - used + bonus`)
+  - Normal daily-quota consumed counter parsing from position [20]
+  - Bonus tracking: granted duration remains separate; estimated remaining is
+    derived from per-device usage deltas, persisted per override, and marked
+    with source/quality metadata
   - Daily limit activation: only if day==current AND index<10 AND state==2
   - timeLimit unwrapping: data at response[1]
   - Revision filtering: exactly 4 elements
@@ -591,7 +623,11 @@ Returns a transaction ID/timestamp on success.
 ## ❓ Known gaps / Openings
 - **Exhaustive capability list**: not public; document **as you use**.
 - **Complete proto schema**: not available; remain defensive on parsing side.
-- **Position [19] in appliedTimeLimits**: May contain bonus-related data or remaining time, needs further investigation.
+- **Bonus remaining**: No decrementing bonus-remaining field has been verified.
+  Position `[19]` is normal daily-quota remaining, not bonus remaining. The
+  integration now supplies a persisted usage-delta estimate with rollover and
+  replacement handling, but its accuracy is limited by Google's chunky refresh
+  cadence and the semantics of the observed counters.
 - **Other override types**: Only types 1, 4, 8, 10 documented. Other types may exist.
 - **Schooltime schedule updates**: Recurring weekly write support is intentionally not implemented here. This fork parses school time schedules for read-only display and supports today's school time override flow, but the weekly school time write endpoint shape is not verified.
 - **Daily limit per-device enable/disable**: Currently only global ON/OFF documented, per-device toggle may exist.
@@ -599,4 +635,4 @@ Returns a transaction ID/timestamp on success.
 
 ---
 
-*Last update: based on sanitized endpoint captures and Family Link UI observations. PRs welcome if you observe variants.*
+*Last update: 2026-08-13, based on sanitized endpoint captures and Family Link UI observations. PRs welcome if you observe variants.*

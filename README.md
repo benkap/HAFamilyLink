@@ -66,6 +66,14 @@ This project uses unofficial, reverse-engineered Google Family Link endpoints. U
 
 GPS location tracking is opt-in. Each location poll may notify the child's device.
 
+### Bonus-time estimates
+
+Google does not expose a verified live bonus countdown. HAFamilyLink estimates
+remaining bonus time from available usage counters, so values update at
+Google's refresh cadence and may lag. See the [Advanced
+Reference](docs/REFERENCE.md#per-device-entities) and [Google Family Link API
+Analysis](docs/GOOGLE_FAMILY_LINK_API_ANALYSIS.md) for details.
+
 ## What This Fork Adds
 
 - Recurring bedtime schedule editing with `familylink.set_bedtime_schedule`

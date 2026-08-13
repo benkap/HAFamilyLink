@@ -382,6 +382,15 @@ class ScreenTimeRemainingSensor(CoordinatorEntity, SensorEntity):
                         attributes["used_minutes"] = time_data.get("used_minutes", 0)
                         attributes["daily_limit_enabled"] = time_data.get("daily_limit_enabled", False)
                         attributes["daily_limit_minutes"] = time_data.get("daily_limit_minutes", 0)
+                        attributes["bonus_granted_minutes"] = time_data.get("bonus_granted_minutes", 0)
+                        attributes["bonus_remaining_minutes"] = time_data.get("bonus_remaining_minutes", 0)
+                        attributes["bonus_remaining_quality"] = time_data.get(
+                            "bonus_remaining_quality", "inactive"
+                        )
+                        attributes["bonus_remaining_source"] = time_data.get(
+                            "bonus_remaining_source", "none"
+                        )
+                        attributes["bonus_override_id"] = time_data.get("bonus_override_id")
 
                         # Calculate percentage used
                         total = time_data.get("total_allowed_minutes", 0)
@@ -1659,6 +1668,22 @@ class ActiveBonusSensor(CoordinatorEntity, SensorEntity):
 						time_data = devices_time_data[self._device_id]
 						bonus_mins = time_data.get("bonus_minutes", 0)
 						attributes["has_bonus"] = bonus_mins > 0
+						attributes["granted_minutes"] = time_data.get(
+							"bonus_granted_minutes", bonus_mins
+						)
+						attributes["remaining_minutes"] = time_data.get(
+							"bonus_remaining_minutes", bonus_mins
+						)
+						attributes["remaining_quality"] = time_data.get(
+							"bonus_remaining_quality", "inactive"
+						)
+						attributes["remaining_source"] = time_data.get(
+							"bonus_remaining_source", "none"
+						)
+						attributes["override_id"] = time_data.get("bonus_override_id")
+						attributes["observation_count"] = time_data.get(
+							"bonus_observation_count", 0
+						)
 
 		return attributes
 
