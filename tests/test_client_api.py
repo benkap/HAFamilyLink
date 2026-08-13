@@ -779,6 +779,7 @@ async def test_daily_screen_time_aggregates_matching_day_sessions(hass):
 					"date": {"year": 2026, "month": 6, "day": 24},
 					"usage": "1800.5s",
 					"appId": {"androidAppPackageName": "com.video"},
+					"deviceMudId": "tablet-1",
 				},
 				{
 					"date": {"year": 2026, "month": 6, "day": 24},
@@ -789,6 +790,7 @@ async def test_daily_screen_time_aggregates_matching_day_sessions(hass):
 					"date": {"year": 2026, "month": 6, "day": 24},
 					"usage": "60s",
 					"appId": {"androidAppPackageName": "com.music"},
+					"deviceMudId": "phone-1",
 				},
 				{
 					"date": {"year": 2026, "month": 6, "day": 23},
@@ -807,6 +809,29 @@ async def test_daily_screen_time_aggregates_matching_day_sessions(hass):
 	assert result["app_breakdown"] == {
 		"com.video": 1800.5,
 		"com.music": 60.0,
+	}
+	assert result["device_breakdown"] == {
+		"tablet-1": {
+			"total_seconds": 1800.5,
+			"session_count": 1,
+			"app_breakdown": {"com.video": 1800.5},
+			"formatted": "00:30:00",
+			"date": datetime(2026, 6, 24).date(),
+		},
+		"phone-1": {
+			"total_seconds": 60.0,
+			"session_count": 1,
+			"app_breakdown": {"com.music": 60.0},
+			"formatted": "00:01:00",
+			"date": datetime(2026, 6, 24).date(),
+		},
+	}
+	assert result["unattributed"] == {
+		"total_seconds": 0.0,
+		"session_count": 1,
+		"app_breakdown": {"com.video": 0},
+		"formatted": "00:00:00",
+		"date": datetime(2026, 6, 24).date(),
 	}
 
 

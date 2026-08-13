@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.5.0] - 2026-08-13
+
+### Added
+- Persisted per-device bonus tracking that estimates remaining bonus time from usage-counter deltas, uses app-attributed usage as a fallback, and handles bonus replacement and daily counter rollover.
+- Active Bonus sensor attributes for granted time, estimated remaining time, estimate quality and source, override ID, and observation count.
+
+### Changed
+- Screen Time Remaining now reports the derived bonus estimate while a bonus is active, while the Active Bonus sensor state remains the granted duration for compatibility.
+- Documented that `appliedTimeLimits` positions `[19]` and `[20]` represent normal daily-quota remaining and consumed values, not a native bonus countdown.
+
+---
+
+## [1.4.0] - 2026-08-11
+
+### Added
+- Per-device daily screen-time sensors backed by Google's applied per-device totals, with independently reported app-session attribution and an explicit `pending` status when Google has not emitted app history for a newly connected device yet.
+- A child-level device policy state sensor that reports `uniform`, `mixed`, `overridden`, or `unknown`, with recurring child-wide policy and today-effective per-device values exposed separately.
+
+---
+
 ## [1.3.2] - 2026-07-05
 
 ### Fixed
