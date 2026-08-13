@@ -4,6 +4,11 @@ All notable changes to the Google Family Link Auth Add-on will be documented in 
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-08-13
+
+### Security
+- Updated `cryptography` from 48.0.1 to 50.0.0 to fix CVE-2026-69247.
+
 ## [1.7.2] - 2026-06-29
 
 ### Changed
