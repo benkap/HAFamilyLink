@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -337,6 +337,102 @@ async def test_fetch_data_builds_child_device_and_schedule_state(
 	assert time_data["bedtime_weekly_window_label"] == "21:00-06:00"
 	assert time_data["bedtime_window_differs_from_weekly"] is True
 	assert coordinator._devices[f"{TEST_CHILD_ID}_{TEST_DEVICE_ID}"] == device
+
+
+async def test_fetch_data_tracks_and_clears_active_bonus(
+	hass, mock_config_entry
+):
+	"""Fresh active bonuses are persisted and inactive overrides clear tracking."""
+	active = deepcopy(_client().async_get_applied_time_limits.return_value)
+	active_time_data = active["devices"][TEST_DEVICE_ID]
+	active_time_data.update(
+		{
+			"bonus_minutes": 30,
+			"bonus_override_id": "bonus-1",
+			"remaining_minutes": 30,
+			"total_allowed_minutes": 30,
+		}
+	)
+	inactive = deepcopy(active)
+	inactive["devices"][TEST_DEVICE_ID].update(
+		{
+			"bonus_minutes": 0,
+			"bonus_override_id": None,
+			"remaining_minutes": 0,
+			"total_allowed_minutes": 90,
+		}
+	)
+
+	coordinator = _coordinator(hass, mock_config_entry)
+	coordinator.client = _client(
+		async_get_applied_time_limits=AsyncMock(side_effect=[active, inactive])
+	)
+	coordinator._bonus_tracking_store.async_delay_save = MagicMock()
+	tracking_key = f"{TEST_CHILD_ID}:{TEST_DEVICE_ID}"
+
+	first = await coordinator._async_fetch_data()
+	first_device = first["children_data"][0]["devices"][0]
+
+	assert first_device["remaining_minutes"] == 30
+	assert first_device["total_allowed_minutes"] == 30
+	assert first_device["bonus_remaining_quality"] == "initializing"
+	assert tracking_key in coordinator._bonus_tracking
+	save_callback = coordinator._bonus_tracking_store.async_delay_save.call_args.args[0]
+	assert tracking_key in save_callback()["devices"]
+
+	second = await coordinator._async_fetch_data()
+	second_device = second["children_data"][0]["devices"][0]
+
+	assert second_device["bonus_remaining_quality"] == "inactive"
+	assert tracking_key not in coordinator._bonus_tracking
+	assert coordinator._bonus_tracking_store.async_delay_save.call_count == 2
+
+
+async def test_fetch_data_skips_time_data_that_becomes_malformed(
+	hass, mock_config_entry, monkeypatch
+):
+	"""Defensive bonus and copy loops ignore a malformed device-time row."""
+	coordinator = _coordinator(hass, mock_config_entry)
+	coordinator.client = _client()
+
+	def build_then_corrupt(devices, devices_time_data, screen_time):
+		result = _build_device_usage_data(devices, devices_time_data, screen_time)
+		devices_time_data[TEST_DEVICE_ID] = []
+		return result
+
+	monkeypatch.setattr(
+		"custom_components.familylink.coordinator._build_device_usage_data",
+		build_then_corrupt,
+	)
+
+	result = await coordinator._async_fetch_data()
+
+	assert result["children_data"][0]["devices_time_data"][TEST_DEVICE_ID] == []
+	assert result["children_data"][0]["devices"][0]["remaining_minutes"] == 0
+
+
+async def test_bonus_tracking_store_loads_only_once(hass, mock_config_entry):
+	"""Persisted bonus baselines are filtered and loaded once per coordinator."""
+	coordinator = _coordinator(hass, mock_config_entry)
+	store = SimpleNamespace(
+		async_load=AsyncMock(
+			return_value={
+				"devices": {
+					f"{TEST_CHILD_ID}:{TEST_DEVICE_ID}": {"override_id": "bonus-1"},
+					"malformed": "ignore",
+				}
+			}
+		)
+	)
+	coordinator._bonus_tracking_store = store
+
+	await coordinator._async_load_bonus_tracking()
+	await coordinator._async_load_bonus_tracking()
+
+	assert coordinator._bonus_tracking == {
+		f"{TEST_CHILD_ID}:{TEST_DEVICE_ID}": {"override_id": "bonus-1"}
+	}
+	store.async_load.assert_awaited_once()
 
 
 async def test_fetch_data_restores_cached_child_data_when_child_calls_fail(

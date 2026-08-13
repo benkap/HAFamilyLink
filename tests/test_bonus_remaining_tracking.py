@@ -68,6 +68,52 @@ def test_bonus_falls_back_when_applied_counter_is_unchanged() -> None:
     assert fields["bonus_remaining_source"] == "appsandusage"
 
 
+def test_bonus_repairs_missing_persisted_counters() -> None:
+    """Malformed persisted values fall back to the current grant and counter."""
+    tracking, fields = _derive_bonus_tracking(
+        _time_data(used=105),
+        _usage(sessions=0),
+        {
+            "override_id": "bonus-1",
+            "granted_minutes": 60,
+            "remaining_base_minutes": None,
+            "remaining_minutes": None,
+            "applied_baseline": None,
+            "app_baseline": None,
+            "usage_date": "2026-08-13",
+            "observation_count": 1,
+        },
+    )
+
+    assert tracking is not None
+    assert tracking["applied_baseline"] == 105
+    assert fields["bonus_remaining_minutes"] == 60
+    assert fields["bonus_remaining_source"] == "applied_time_limits"
+
+
+def test_bonus_preserves_previous_estimate_when_no_counter_is_usable() -> None:
+    """An observation without either counter cannot consume estimated time."""
+    tracking, fields = _derive_bonus_tracking(
+        _time_data(used=None),
+        _usage(sessions=0),
+        {
+            "override_id": "bonus-1",
+            "granted_minutes": 60,
+            "remaining_base_minutes": 60,
+            "remaining_minutes": 55,
+            "applied_baseline": 100,
+            "app_baseline": None,
+            "usage_date": "2026-08-13",
+            "observation_count": 2,
+        },
+    )
+
+    assert tracking is not None
+    assert fields["bonus_remaining_minutes"] == 55
+    assert fields["bonus_remaining_source"] == "none"
+    assert fields["bonus_remaining_quality"] == "unavailable"
+
+
 def test_bonus_preserves_remaining_across_daily_rollover() -> None:
     """Counter resets start a new segment without restoring the full grant."""
     tracking, _ = _derive_bonus_tracking(_time_data(), _usage(), None)
