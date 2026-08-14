@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.5.1] - 2026-08-13
+
+### Security
+- Published auth service 1.7.3 with `cryptography` 50.0.0, fixing CVE-2026-69247 in the standalone auth runtime.
+
+---
+
 ## [1.5.0] - 2026-08-13
 
 ### Added
